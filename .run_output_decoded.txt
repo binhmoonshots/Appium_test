@@ -1,0 +1,221 @@
+﻿2026-06-10T03:29:56.074Z INFO webdriver: Initiate new session using the WebDriver protocol
+2026-06-10T03:29:56.077Z INFO @wdio/utils: Connecting to existing driver at http://127.0.0.1:4723/
+2026-06-10T03:29:56.077Z INFO webdriver: Initiate new session using the WebDriver protocol
+2026-06-10T03:29:56.077Z INFO @wdio/utils: Connecting to existing driver at http://127.0.0.1:4723/
+2026-06-10T03:29:56.099Z INFO webdriver: [POST] http://127.0.0.1:4723/session
+2026-06-10T03:29:56.110Z INFO webdriver: [POST] http://127.0.0.1:4723/session
+ce081718f298521c02 connected
+2026-06-10T03:30:01.079Z INFO webdriver: COMMAND executeScript("mobile: shell", <object>)
+2026-06-10T03:30:01.080Z INFO webdriver: [POST] http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef/execute/sync
+2026-06-10T03:30:01.080Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+node.exe : 2026-06-10T03:30:01.098Z WARN webdriver: WebDriverError: 
+Potentially insecure feature 'adb_shell' has not been enabled. If you want to 
+enable this feature and accept the security ramifications, please do so by 
+following the documented instructions at 
+http://appium.io/docs/en/latest/guides/security/ when running "execute/sync" 
+with method "POST"
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-06-10T03:3...h method "POST" 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-06-10T03:30:01.098Z INFO webdriver: Retrying 1/3
+2026-06-10T03:30:01.098Z INFO webdriver: [POST] http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef/execute/sync
+2026-06-10T03:30:01.098Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:01.618Z WARN webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+2026-06-10T03:30:01.618Z INFO webdriver: Retrying 2/3
+2026-06-10T03:30:01.618Z INFO webdriver: [POST] http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef/execute/sync
+2026-06-10T03:30:01.618Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+ce031713612cd4040c connected
+2026-06-10T03:30:01.739Z INFO webdriver: COMMAND executeScript("mobile: shell", <object>)
+2026-06-10T03:30:01.739Z INFO webdriver: [POST] http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f/execute/sync
+2026-06-10T03:30:01.739Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:01.746Z WARN webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+2026-06-10T03:30:01.746Z INFO webdriver: Retrying 1/3
+2026-06-10T03:30:01.746Z INFO webdriver: [POST] http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f/execute/sync
+2026-06-10T03:30:01.747Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:02.268Z WARN webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+2026-06-10T03:30:02.269Z INFO webdriver: Retrying 2/3
+2026-06-10T03:30:02.269Z INFO webdriver: [POST] http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f/execute/sync
+2026-06-10T03:30:02.269Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:02.637Z WARN webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+2026-06-10T03:30:02.637Z INFO webdriver: Retrying 3/3
+2026-06-10T03:30:02.637Z INFO webdriver: [POST] http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef/execute/sync
+2026-06-10T03:30:02.638Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:02.641Z ERROR webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+ce081718f298521c02 failed unknown error: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+    at FetchRequest._request (file:///C:/Dev/Test%20Appium/New%20folder/phonefa
+rm/node_modules/webdriver/build/node.js:2229:19)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Browser.wrapCommandFn (file:///C:/Dev/Test%20Appium/New%20folder/p
+honefarm/node_modules/@wdio/utils/build/index.js:982:23)
+    at async Browser.wrapCommandFn (file:///C:/Dev/Test%20Appium/New%20folder/p
+honefarm/node_modules/@wdio/utils/build/index.js:982:23)
+    at async runDevice (C:\Dev\Test Appium\New folder\phonefarm\test.ts:27:9)
+    at async Promise.all (index 1)
+    at async main (C:\Dev\Test Appium\New folder\phonefarm\test.ts:52:5) {
+  url: URL {
+    href: 'http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef/e
+xecute/sync',
+    origin: 'http://127.0.0.1:4723',
+    protocol: 'http:',
+    username: '',
+    password: '',
+    host: '127.0.0.1:4723',
+    hostname: '127.0.0.1',
+    port: '4723',
+    pathname: '/session/7ac20cf0-ad65-462b-81eb-5396925648ef/execute/sync',
+    search: '',
+    searchParams: URLSearchParams {},
+    hash: ''
+  },
+  opts: {
+    method: 'POST',
+    redirect: 'follow',
+    signal: AbortSignal { aborted: false },
+    body: '{"script":"mobile: shell","args":[{"command":"monkey","args":["-p","
+com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}',
+    headers: Headers {
+      'Content-Type': 'application/json; charset=utf-8',
+      Connection: 'keep-alive',
+      Accept: 'application/json',
+      'User-Agent': 'webdriver/9.27.1',
+      'Content-Length': '143'
+    },
+    dispatcher: Agent {
+      _events: [Object: null prototype] {},
+      _eventsCount: 0,
+      _maxListeners: undefined,
+      Symbol(shapeMode): false,
+      Symbol(kCapture): false,
+      Symbol(nodejs.stream.destroyed): false,
+      Symbol(onDestroyed): null,
+      Symbol(closed): false,
+      Symbol(onClosed): [],
+      Symbol(webSocketOptions): {},
+      Symbol(dispatch interceptors): [Array],
+      Symbol(options): [Object],
+      Symbol(maxRedirections): 0,
+      Symbol(factory): [Function: defaultFactory],
+      Symbol(clients): [Map],
+      Symbol(onDrain): [Function (anonymous)],
+      Symbol(onConnect): [Function (anonymous)],
+      Symbol(onDisconnect): [Function (anonymous)],
+      Symbol(onConnectionError): [Function (anonymous)],
+      Symbol(Intercepted Dispatch): [Function: Intercept]
+    }
+  }
+}
+2026-06-10T03:30:02.649Z INFO webdriver: COMMAND deleteSession()
+2026-06-10T03:30:02.649Z INFO webdriver: [DELETE] http://127.0.0.1:4723/session/7ac20cf0-ad65-462b-81eb-5396925648ef
+2026-06-10T03:30:03.285Z WARN webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+2026-06-10T03:30:03.286Z INFO webdriver: Retrying 3/3
+2026-06-10T03:30:03.286Z INFO webdriver: [POST] http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f/execute/sync
+2026-06-10T03:30:03.286Z INFO webdriver: DATA {"script":"mobile: shell","args":[{"command":"monkey","args":["-p","com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}
+2026-06-10T03:30:03.291Z ERROR webdriver: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+ce031713612cd4040c failed unknown error: WebDriverError: Potentially insecure 
+feature 'adb_shell' has not been enabled. If you want to enable this feature 
+and accept the security ramifications, please do so by following the 
+documented instructions at http://appium.io/docs/en/latest/guides/security/ 
+when running "execute/sync" with method "POST"
+    at FetchRequest._request (file:///C:/Dev/Test%20Appium/New%20folder/phonefa
+rm/node_modules/webdriver/build/node.js:2229:19)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Browser.wrapCommandFn (file:///C:/Dev/Test%20Appium/New%20folder/p
+honefarm/node_modules/@wdio/utils/build/index.js:982:23)
+    at async Browser.wrapCommandFn (file:///C:/Dev/Test%20Appium/New%20folder/p
+honefarm/node_modules/@wdio/utils/build/index.js:982:23)
+    at async runDevice (C:\Dev\Test Appium\New folder\phonefarm\test.ts:27:9)
+    at async Promise.all (index 0)
+    at async main (C:\Dev\Test Appium\New folder\phonefarm\test.ts:52:5) {
+  url: URL {
+    href: 'http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f/e
+xecute/sync',
+    origin: 'http://127.0.0.1:4723',
+    protocol: 'http:',
+    username: '',
+    password: '',
+    host: '127.0.0.1:4723',
+    hostname: '127.0.0.1',
+    port: '4723',
+    pathname: '/session/725b70de-f9af-41ab-8456-924c9db6f29f/execute/sync',
+    search: '',
+    searchParams: URLSearchParams {},
+    hash: ''
+  },
+  opts: {
+    method: 'POST',
+    redirect: 'follow',
+    signal: AbortSignal { aborted: false },
+    body: '{"script":"mobile: shell","args":[{"command":"monkey","args":["-p","
+com.google.android.youtube","-c","android.intent.category.LAUNCHER","1"]}]}',
+    headers: Headers {
+      'Content-Type': 'application/json; charset=utf-8',
+      Connection: 'keep-alive',
+      Accept: 'application/json',
+      'User-Agent': 'webdriver/9.27.1',
+      'Content-Length': '143'
+    },
+    dispatcher: Agent {
+      _events: [Object: null prototype] {},
+      _eventsCount: 0,
+      _maxListeners: undefined,
+      Symbol(shapeMode): false,
+      Symbol(kCapture): false,
+      Symbol(nodejs.stream.destroyed): false,
+      Symbol(onDestroyed): null,
+      Symbol(closed): false,
+      Symbol(onClosed): [],
+      Symbol(webSocketOptions): {},
+      Symbol(dispatch interceptors): [Array],
+      Symbol(options): [Object],
+      Symbol(maxRedirections): 0,
+      Symbol(factory): [Function: defaultFactory],
+      Symbol(clients): [Map],
+      Symbol(onDrain): [Function (anonymous)],
+      Symbol(onConnect): [Function (anonymous)],
+      Symbol(onDisconnect): [Function (anonymous)],
+      Symbol(onConnectionError): [Function (anonymous)],
+      Symbol(Intercepted Dispatch): [Function: Intercept]
+    }
+  }
+}
+2026-06-10T03:30:03.292Z INFO webdriver: COMMAND deleteSession()
+2026-06-10T03:30:03.292Z INFO webdriver: [DELETE] http://127.0.0.1:4723/session/725b70de-f9af-41ab-8456-924c9db6f29f
+2026-06-10T03:30:03.870Z INFO webdriver: RESULT null
+2026-06-10T03:30:04.175Z INFO webdriver: RESULT null
+Done
