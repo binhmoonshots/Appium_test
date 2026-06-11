@@ -7,7 +7,8 @@
     "test": "npm run wdio",
     "wdio": "wdio run ./wdio.conf.ts",
     "appium": "npx appium",
-    "youtube:upload": "node ./scripts/youtube-upload-random.js"
+    "youtube:upload": "node ./scripts/youtube-upload-random.js",
+    "youtube:upload:multi": "node ./scripts/youtube-upload-multi.js"
   },
   "keywords": [],
   "author": "",
