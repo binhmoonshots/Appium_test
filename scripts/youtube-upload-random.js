@@ -49,6 +49,7 @@ const config = {
   videoPath: cliArgs.videoPath || process.env.YT_VIDEO_PATH || process.env.VIDEO_PATH || "",
   title: cliArgs.title || process.env.YT_TITLE || process.env.TITLE || "",
   description: process.env.YT_DESCRIPTION || "Uploaded from Appium automation.",
+  soundQuery: cliArgs.sound || cliArgs.soundQuery || process.env.YT_SOUND || process.env.YT_SOUND_QUERY || "",
   soundName: cliArgs.soundName || process.env.YT_SOUND_NAME || process.env.SOUND_NAME || "",
   songTitle: cliArgs.songTitle || process.env.YT_SONG_TITLE || process.env.YT_SOUND_TITLE || process.env.SONG_TITLE || "",
   madeForKids: /^true$/i.test(process.env.YT_MADE_FOR_KIDS || ""),
@@ -84,10 +85,14 @@ function escapeUiText(value) {
 }
 
 function hasSoundInput() {
-  return Boolean(config.soundName || config.songTitle);
+  return Boolean(config.soundQuery || config.soundName || config.songTitle);
 }
 
 function soundSearchQuery() {
+  if (config.soundQuery) {
+    return config.soundQuery;
+  }
+
   return [config.songTitle, config.soundName].filter(Boolean).join(" ").trim();
 }
 
@@ -744,12 +749,18 @@ function soundSearchSelectors() {
 }
 
 function soundResultSelectors() {
-  const terms = [config.songTitle, config.soundName].filter(Boolean).map(escapeUiText);
+  const terms = config.soundQuery
+    ? soundSearchQuery().split(/\s+/).filter(Boolean).map(escapeUiText)
+    : [config.songTitle, config.soundName].filter(Boolean).map(escapeUiText);
   const selectors = [];
   const songByArtist = [config.soundName, config.songTitle].filter(Boolean).join(" - ");
   const escapedSongByArtist = escapeUiText(songByArtist);
 
-  if (config.soundName && config.songTitle) {
+  if (config.soundQuery) {
+    selectors.push(
+      `//*[contains(@content-desc,"${escapeUiText(config.soundQuery)}") and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))]`
+    );
+  } else if (config.soundName && config.songTitle) {
     selectors.push(
       `//*[contains(@content-desc,"${escapeUiText(config.songTitle)}") and contains(@content-desc,"${escapeUiText(config.soundName)}") and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))]`
     );
@@ -1165,6 +1176,7 @@ async function main() {
         sourceVideoPath: config.videoPath,
         deviceVideoPath,
         title: config.title,
+        soundQuery: config.soundQuery,
         soundName: config.soundName,
         songTitle: config.songTitle,
       };
@@ -1181,6 +1193,7 @@ async function main() {
       sourceVideoPath: config.videoPath,
       deviceVideoPath,
       title: config.title,
+      soundQuery: config.soundQuery,
       soundName: config.soundName,
       songTitle: config.songTitle,
     };
