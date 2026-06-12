@@ -243,7 +243,10 @@ function uploadButtonSelectors() {
     'android=new UiSelector().textMatches("(?i)(upload|publish|post|upload short)")',
     'android=new UiSelector().descriptionMatches("(?i)(upload|publish|post|upload short)")',
     '//android.widget.Button[@resource-id="com.google.android.youtube:id/upload_bottom_button"]',
-    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button"]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"upload")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"post")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"upload")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"post")]',
   ];
 }
 
@@ -368,9 +371,12 @@ async function pressBottomRightAction(driver, label) {
 
 async function pressUploadShort(driver) {
   const selectors = [
-    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button"]',
     '//android.widget.Button[@resource-id="com.google.android.youtube:id/upload_bottom_button"]',
     '//android.widget.Button[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"upload short")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"upload")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"post")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"upload")]',
+    '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button" and contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"post")]',
     'android=new UiSelector().textMatches("(?i)(upload short|upload|publish|post)")',
     'android=new UiSelector().descriptionMatches("(?i)(upload short|upload|publish|post)")',
   ];
@@ -744,25 +750,37 @@ function soundResultSelectors() {
   const escapedSongByArtist = escapeUiText(songByArtist);
 
   if (config.soundName && config.songTitle) {
-    selectors.push(`android=new UiSelector().textContains("${escapedSongByArtist}")`);
-    selectors.push(`android=new UiSelector().descriptionContains("${escapedSongByArtist}")`);
     selectors.push(
-      `//*[contains(@text,"${escapedSongByArtist}") or contains(@content-desc,"${escapedSongByArtist}")]`
+      `//*[contains(@content-desc,"${escapeUiText(config.songTitle)}") and contains(@content-desc,"${escapeUiText(config.soundName)}") and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))]`
+    );
+    selectors.push(
+      `//*[contains(@content-desc,"${escapedSongByArtist}") and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))]`
     );
   }
 
   for (const term of terms) {
-    selectors.push(`android=new UiSelector().textContains("${term}")`);
-    selectors.push(`android=new UiSelector().descriptionContains("${term}")`);
+    selectors.push(
+      `//*[contains(@content-desc,"${term}") and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))]`
+    );
   }
 
   selectors.push(
-    'android=new UiSelector().resourceIdMatches("(?i).*(track|song|sound|audio|music).*").instance(0)',
-    'android=new UiSelector().className("android.view.View").clickable(true).instance(0)',
-    'android=new UiSelector().className("android.widget.TextView").clickable(true).instance(0)'
+    '//*[@content-desc and (contains(@content-desc,"preview") or contains(@content-desc,"Shorts"))][1]'
   );
 
   return selectors;
+}
+
+async function waitForSoundSearchResults(driver, timeout = 3000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    const result = await findFirst(driver, soundResultSelectors(), 500);
+    if (result) {
+      return true;
+    }
+    await pause(driver, 300);
+  }
+  return false;
 }
 
 async function tapFirstSoundSuggestion(driver) {
@@ -774,12 +792,28 @@ async function tapFirstSoundSuggestion(driver) {
   }
 
   const { width, height } = await getScreenSize(driver);
-  await tapAt(driver, Math.round(width * 0.42), Math.round(height * 0.18), "first sound suggestion fallback");
+  await tapAt(driver, Math.round(width * 0.34), Math.round(height * 0.28), "first sound suggestion fallback");
   await pause(driver, 1200);
   return true;
 }
 
 async function isSoundPickerVisible(driver) {
+  const soundPicker = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^sounds$")',
+      'android=new UiSelector().descriptionMatches("(?i)^sounds$")',
+      'android=new UiSelector().textMatches("(?i)(create music|cancel)")',
+      'android=new UiSelector().descriptionMatches("(?i)(create music|cancel)")',
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/music_picker_search_box")',
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/music_picker_header_title_text")',
+    ],
+    300
+  );
+  if (soundPicker) {
+    return true;
+  }
+
   const editorNext = await findFirst(
     driver,
     [
@@ -792,18 +826,7 @@ async function isSoundPickerVisible(driver) {
     return false;
   }
 
-  return Boolean(
-    await findFirst(
-      driver,
-      [
-        'android=new UiSelector().textMatches("(?i)^sounds$")',
-        'android=new UiSelector().descriptionMatches("(?i)^sounds$")',
-        'android=new UiSelector().textMatches("(?i)(create music|cancel)")',
-        'android=new UiSelector().descriptionMatches("(?i)(create music|cancel)")',
-      ],
-      300
-    )
-  );
+  return false;
 }
 
 async function openAddSound(driver) {
@@ -860,10 +883,14 @@ async function searchSound(driver) {
 
   await input.click();
   await input.clearValue().catch(() => undefined);
-  await input.setValue(query);
-  await mobileShell(driver, "input", ["keyevent", "ENTER"]);
+  await input.setValue(query).catch(() => undefined);
+  const { width, height } = await getScreenSize(driver);
+  await tapAt(driver, Math.round(width * 0.62), Math.round(height * 0.92), "IME Search");
+  await mobileShell(driver, "input", ["keyevent", "ENTER"]).catch(() => undefined);
   console.log(`Searched sound: ${query}`);
-  await pause(driver, 2500);
+  if (!(await waitForSoundSearchResults(driver, 6000))) {
+    console.warn(`Could not verify sound search results for: ${query}`);
+  }
 }
 
 async function chooseSoundResult(driver) {
@@ -872,9 +899,12 @@ async function chooseSoundResult(driver) {
   await clickIfPresent(
     driver,
     [
-      'android=new UiSelector().textMatches("(?i)(use|add|done|select)")',
-      'android=new UiSelector().descriptionMatches("(?i)(use|add|done|select)")',
-      'android=new UiSelector().resourceIdMatches("(?i).*(use|add|done|select|confirm|check).*")',
+      'android=new UiSelector().descriptionMatches("(?i)(add this music to your video|use this sound|add this sound)")',
+      '//*[contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"add this music to your video")]',
+      '//*[contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"use this sound")]',
+      'android=new UiSelector().textMatches("(?i)(use|done|select)")',
+      'android=new UiSelector().descriptionMatches("(?i)(use|done|select)")',
+      'android=new UiSelector().resourceIdMatches("(?i).*(use|done|select|confirm|check).*")',
     ],
     "confirm sound",
     1200
@@ -885,8 +915,8 @@ async function chooseSoundResult(driver) {
     const closed = await clickIfPresent(
       driver,
       [
-        'android=new UiSelector().textMatches("(?i)(done|use|add)")',
-        'android=new UiSelector().descriptionMatches("(?i)(done|use|add)")',
+        'android=new UiSelector().textMatches("(?i)(done|use|select)")',
+        'android=new UiSelector().descriptionMatches("(?i)(done|use|select)")',
       ],
       "close sound picker",
       800
