@@ -45,6 +45,7 @@ const config = {
   appiumPort: Number(process.env.APPIUM_PORT || 4723),
   systemPort: process.env.APPIUM_SYSTEM_PORT ? Number(process.env.APPIUM_SYSTEM_PORT) : null,
   adbPath: process.env.ADB_PATH || "adb",
+  logLevel: cliArgs.logLevel || process.env.WDIO_LOG_LEVEL || process.env.LOG_LEVEL || "error",
   udid: process.env.ANDROID_DEVICE_UDID || process.env.UDID || "ce031713612cd4040c",
   videoPath: cliArgs.videoPath || process.env.YT_VIDEO_PATH || process.env.VIDEO_PATH || "",
   title: cliArgs.title || process.env.YT_TITLE || process.env.TITLE || "",
@@ -52,6 +53,7 @@ const config = {
   soundQuery: cliArgs.sound || cliArgs.soundQuery || process.env.YT_SOUND || process.env.YT_SOUND_QUERY || "",
   soundName: cliArgs.soundName || process.env.YT_SOUND_NAME || process.env.SOUND_NAME || "",
   songTitle: cliArgs.songTitle || process.env.YT_SONG_TITLE || process.env.YT_SOUND_TITLE || process.env.SONG_TITLE || "",
+  soundVolumePercent: Number(cliArgs.soundVolumePercent || process.env.YT_SOUND_VOLUME_PERCENT || 8),
   madeForKids: /^true$/i.test(process.env.YT_MADE_FOR_KIDS || ""),
   confirmPublish: !/^false$/i.test(process.env.YT_CONFIRM_PUBLISH || ""),
   verifyCleanup: /^true$/i.test(process.env.YT_VERIFY_CLEANUP || ""),
@@ -104,12 +106,13 @@ async function pause(driver, ms = 1000) {
   await driver.pause(ms);
 }
 
-async function findFirst(driver, selectors, timeout = 800) {
+async function findFirst(driver, selectors, _timeout = 800) {
   for (const selector of selectors) {
-    const element = await driver.$(selector);
     try {
-      await element.waitForExist({ timeout });
-      return element;
+      const elements = await driver.$$(selector);
+      if (elements.length > 0) {
+        return elements[0];
+      }
     } catch (_) {
       // Try the next locator.
     }
@@ -179,6 +182,28 @@ async function tapAt(driver, x, y, label) {
     .up()
     .perform();
   console.log(`Tapped ${label} at ${x},${y}`);
+}
+
+async function dragAt(driver, fromX, fromY, toX, toY, label) {
+  await driver
+    .action("pointer", { parameters: { pointerType: "touch" } })
+    .move({ x: fromX, y: fromY })
+    .down()
+    .pause(120)
+    .move({ x: toX, y: toY, duration: 450 })
+    .up()
+    .perform();
+  console.log(`Dragged ${label} from ${fromX},${fromY} to ${toX},${toY}`);
+}
+
+function parseBounds(bounds) {
+  const match = bounds && bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+  if (!match) {
+    return null;
+  }
+
+  const [, left, top, right, bottom] = match.map(Number);
+  return { left, top, right, bottom };
 }
 
 async function tapNextButtonRegion(driver, label) {
@@ -783,15 +808,9 @@ function soundResultSelectors() {
 }
 
 async function waitForSoundSearchResults(driver, timeout = 3000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeout) {
-    const result = await findFirst(driver, soundResultSelectors(), 500);
-    if (result) {
-      return true;
-    }
-    await pause(driver, 300);
-  }
-  return false;
+  await pause(driver, timeout);
+  const result = await findFirst(driver, soundResultSelectors(), 500);
+  return Boolean(result);
 }
 
 async function tapFirstSoundSuggestion(driver) {
@@ -938,6 +957,63 @@ async function chooseSoundResult(driver) {
   }
 }
 
+async function lowerSelectedSoundVolume(driver) {
+  const requestedVolume = Number.isFinite(config.soundVolumePercent) ? config.soundVolumePercent : 8;
+  const volumePercent = Math.max(0, Math.min(100, requestedVolume));
+  const { width, height } = await getScreenSize(driver);
+
+  await tapAt(driver, Math.round(width * 0.90), Math.round(height * 0.09), "sound volume button");
+  await pause(driver, 900);
+
+  const volumeSheet = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^volume$")',
+      'android=new UiSelector().descriptionMatches("(?i)^volume$")',
+    ],
+    500
+  );
+
+  if (!volumeSheet) {
+    console.warn("Could not verify Volume sheet; skipping sound volume adjustment.");
+    return false;
+  }
+
+  let sliderLeft = Math.round(width * 0.04);
+  let sliderRight = Math.round(width * 0.97);
+  let musicSliderY = Math.round(height * 0.875);
+
+  const seekBars = await driver.$$('android=new UiSelector().className("android.widget.SeekBar")').catch(() => []);
+  if (seekBars.length >= 2) {
+    const bounds = parseBounds(await seekBars[1].getAttribute("bounds").catch(() => ""));
+    if (bounds) {
+      sliderLeft = bounds.left;
+      sliderRight = bounds.right;
+      musicSliderY = Math.round((bounds.top + bounds.bottom) / 2);
+    }
+  }
+
+  const targetX = sliderLeft + Math.round((sliderRight - sliderLeft) * (volumePercent / 100));
+
+  await mobileShell(driver, "input", ["tap", targetX.toString(), musicSliderY.toString()]);
+  await pause(driver, 250);
+  await mobileShell(driver, "input", [
+    "swipe",
+    sliderRight.toString(),
+    musicSliderY.toString(),
+    targetX.toString(),
+    musicSliderY.toString(),
+    "700",
+  ]);
+  await pause(driver, 250);
+  await tapAt(driver, targetX, musicSliderY, `selected sound volume ${volumePercent}%`);
+  await pause(driver, 400);
+  await tapAt(driver, Math.round(width * 0.92), Math.round(height * 0.65), "Volume done");
+  await pause(driver, 600);
+  console.log(`Selected sound volume set near ${volumePercent}%`);
+  return true;
+}
+
 async function addSoundIfConfigured(driver) {
   if (!hasSoundInput()) {
     return false;
@@ -952,6 +1028,7 @@ async function addSoundIfConfigured(driver) {
   await searchSound(driver);
   await chooseSoundResult(driver);
   console.log("Sound selected");
+  await lowerSelectedSoundVolume(driver);
   return true;
 }
 
@@ -1133,6 +1210,7 @@ async function main() {
     hostname: config.appiumHost,
     port: config.appiumPort,
     path: "/",
+    logLevel: config.logLevel,
     capabilities: {
       platformName: "Android",
       "appium:automationName": "UiAutomator2",
