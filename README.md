@@ -28,7 +28,7 @@
 
 ## Upload video YouTube native
 
-Script mới nằm ở `scripts/youtube-upload-random.js`.
+Script mới nằm ở `scripts/youtube-upload-random/index.js`.
 
 Ví dụ chạy thử, dừng trước nút publish:
 

@@ -1,5 +1,6 @@
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 
 function parseCliArgs(argv) {
@@ -40,6 +41,10 @@ function splitList(value) {
     .filter(Boolean);
 }
 
+function boolArg(value) {
+  return /^(1|true|yes|y)$/i.test(String(value || ""));
+}
+
 function validateVideo(videoPath) {
   if (!videoPath) {
     throw new Error("Missing videoPath. Use --videoPath or set YT_VIDEO_PATH.");
@@ -51,6 +56,57 @@ function validateVideo(videoPath) {
   }
 
   return resolved;
+}
+
+function appiumEntryPath() {
+  return path.join(process.cwd(), "node_modules", "appium", "index.js");
+}
+
+function waitForAppium(port, timeoutMs = 30000) {
+  const startedAt = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const req = http.get(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/status",
+          timeout: 1000,
+        },
+        (res) => {
+          res.resume();
+          resolve();
+        }
+      );
+
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => {
+        if (Date.now() - startedAt >= timeoutMs) {
+          reject(new Error(`Appium server did not start on port ${port}`));
+          return;
+        }
+        setTimeout(check, 500);
+      });
+    };
+
+    check();
+  });
+}
+
+async function startAppiumServer(port) {
+  const child = spawn(process.execPath, [appiumEntryPath(), "--port", String(port), "--allow-insecure=uiautomator2:adb_shell"], {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+
+  child.stdout.on("data", (chunk) => prefixLines(`appium:${port}`, chunk));
+  child.stderr.on("data", (chunk) => prefixLines(`appium:${port} ERR`, chunk));
+
+  await waitForAppium(port);
+  return child;
 }
 
 function adbPath() {
@@ -86,14 +142,15 @@ function prefixLines(prefix, chunk) {
     .forEach((line) => console.log(`[${prefix}] ${line}`));
 }
 
-function runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSystemPort }) {
+function runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSystemPort, appiumPort }) {
   return new Promise((resolve) => {
     const systemPort = baseSystemPort + index;
-    const child = spawn(process.execPath, ["./scripts/youtube-upload-random.js"], {
+    const child = spawn(process.execPath, ["./scripts/youtube-upload-random"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
         ANDROID_DEVICE_UDID: udid,
+        APPIUM_PORT: String(appiumPort),
         APPIUM_SYSTEM_PORT: String(systemPort),
         YT_VIDEO_PATH: videoPath,
         YT_TITLE: title,
@@ -124,6 +181,7 @@ function runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSy
     child.on("close", (code) => {
       resolve({
         udid,
+        appiumPort,
         systemPort,
         exitCode: code,
         result: resultJson,
@@ -144,6 +202,8 @@ async function main() {
       ? splitList(cliArgs.udids || process.env.ANDROID_DEVICE_UDIDS || process.env.UDIDS)
       : detectConnectedDevices();
   const baseSystemPort = Number(cliArgs.baseSystemPort || process.env.APPIUM_BASE_SYSTEM_PORT || 8200);
+  const appiumPortBase = Number(cliArgs.appiumPortBase || process.env.APPIUM_PORT_BASE || process.env.APPIUM_PORT || 4723);
+  const startAppium = boolArg(cliArgs.startAppium || process.env.APPIUM_START_SERVERS);
 
   if (!title) {
     throw new Error("Missing title. Use --title or set YT_TITLE.");
@@ -153,15 +213,40 @@ async function main() {
     throw new Error("No connected adb devices found. Set ANDROID_DEVICE_UDIDS or connect devices.");
   }
 
-  console.log(`Running ${udids.length} device(s): ${udids.join(", ")}`);
-  const results = await Promise.all(
-    udids.map((udid, index) => runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSystemPort }))
-  );
+  const appiumServers = [];
+  try {
+    if (startAppium) {
+      console.log(`Starting ${udids.length} Appium server(s) from port ${appiumPortBase}`);
+      for (let index = 0; index < udids.length; index += 1) {
+        appiumServers.push(await startAppiumServer(appiumPortBase + index));
+      }
+    }
 
-  console.log("MULTI_RESULT_JSON", JSON.stringify({ ok: results.every((item) => item.ok), results }));
+    console.log(`Running ${udids.length} device(s): ${udids.join(", ")}`);
+    const results = await Promise.all(
+      udids.map((udid, index) =>
+        runDevice({
+          udid,
+          index,
+          videoPath,
+          title,
+          soundName,
+          songTitle,
+          baseSystemPort,
+          appiumPort: startAppium ? appiumPortBase + index : appiumPortBase,
+        })
+      )
+    );
 
-  if (!results.every((item) => item.ok)) {
-    process.exitCode = 1;
+    console.log("MULTI_RESULT_JSON", JSON.stringify({ ok: results.every((item) => item.ok), results }));
+
+    if (!results.every((item) => item.ok)) {
+      process.exitCode = 1;
+    }
+  } finally {
+    for (const server of appiumServers) {
+      server.kill();
+    }
   }
 }
 
