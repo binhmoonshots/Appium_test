@@ -54,6 +54,11 @@ const config = {
   soundName: cliArgs.soundName || process.env.YT_SOUND_NAME || process.env.SOUND_NAME || "",
   songTitle: cliArgs.songTitle || process.env.YT_SONG_TITLE || process.env.YT_SOUND_TITLE || process.env.SONG_TITLE || "",
   soundVolumePercent: Number(cliArgs.soundVolumePercent || process.env.YT_SOUND_VOLUME_PERCENT || 8),
+  soundStartSeconds: Number(cliArgs.soundStartSeconds || process.env.YT_SOUND_START_SECONDS || 0),
+  soundStartPercent: Number(cliArgs.soundStartPercent || process.env.YT_SOUND_START_PERCENT || 0),
+  clipDurationSeconds: Number(cliArgs.clipDurationSeconds || process.env.YT_CLIP_DURATION_SECONDS || 0),
+  sourceDurationSeconds: Number(cliArgs.sourceDurationSeconds || process.env.YT_SOURCE_DURATION_SECONDS || 0),
+  trimTimelineYPercent: Number(cliArgs.trimTimelineYPercent || process.env.YT_TRIM_TIMELINE_Y_PERCENT || 0.815),
   madeForKids: /^true$/i.test(process.env.YT_MADE_FOR_KIDS || ""),
   confirmPublish: !/^false$/i.test(process.env.YT_CONFIRM_PUBLISH || ""),
   verifyCleanup: /^true$/i.test(process.env.YT_VERIFY_CLEANUP || ""),
@@ -100,6 +105,43 @@ function soundSearchQuery() {
 
 function randomInt(max) {
   return Math.floor(Math.random() * max);
+}
+
+function parseDurationSeconds(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  const hms = text.match(/^(\d+):([0-5]?\d):([0-5]?\d(?:\.\d+)?)$/);
+  if (hms) {
+    return Number(hms[1]) * 3600 + Number(hms[2]) * 60 + Number(hms[3]);
+  }
+
+  const ms = text.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (ms) {
+    return Number(ms[1]) * 60 + Number(ms[2]);
+  }
+
+  const compact = text.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)?$/);
+  if (compact && (compact[1] || compact[2] || compact[3])) {
+    return Number(compact[1] || 0) * 3600 + Number(compact[2] || 0) * 60 + Number(compact[3] || 0);
+  }
+
+  return null;
+}
+
+function parseVerboseDurationSeconds(value) {
+  const text = String(value || "").toLowerCase();
+  const hours = Number((text.match(/(\d+(?:\.\d+)?)\s*hours?/) || [])[1] || 0);
+  const minutes = Number((text.match(/(\d+(?:\.\d+)?)\s*minutes?/) || [])[1] || 0);
+  const seconds = Number((text.match(/(\d+(?:\.\d+)?)\s*seconds?/) || [])[1] || 0);
+
+  if (!hours && !minutes && !seconds) {
+    return null;
+  }
+
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 async function pause(driver, ms = 1000) {
@@ -173,6 +215,23 @@ async function tapElementCenter(driver, element, label) {
   console.log(`Tapped ${label}`);
 }
 
+async function tapElementCenterWithAdb(driver, element, label) {
+  const bounds = await element.getAttribute("bounds");
+  const parsed = parseBounds(bounds);
+  if (!parsed) {
+    await tapElementCenter(driver, element, label);
+    return false;
+  }
+
+  const x = Math.round((parsed.left + parsed.right) / 2);
+  const y = Math.round((parsed.top + parsed.bottom) / 2);
+  await tapAt(driver, x, y, label);
+  await pause(driver, 150);
+  await mobileShell(driver, "input", ["tap", String(x), String(y)]);
+  console.log(`ADB tapped ${label} at ${x},${y}`);
+  return true;
+}
+
 async function tapAt(driver, x, y, label) {
   await driver
     .action("pointer", { parameters: { pointerType: "touch" } })
@@ -194,6 +253,18 @@ async function dragAt(driver, fromX, fromY, toX, toY, label) {
     .up()
     .perform();
   console.log(`Dragged ${label} from ${fromX},${fromY} to ${toX},${toY}`);
+}
+
+async function swipeAtWithAdb(driver, fromX, fromY, toX, toY, durationMs, label) {
+  await mobileShell(driver, "input", [
+    "swipe",
+    String(Math.round(fromX)),
+    String(Math.round(fromY)),
+    String(Math.round(toX)),
+    String(Math.round(toY)),
+    String(durationMs),
+  ]);
+  console.log(`ADB swiped ${label} from ${fromX},${fromY} to ${toX},${toY}`);
 }
 
 function parseBounds(bounds) {
@@ -378,25 +449,38 @@ async function clickNext(driver, label, allowFallbackTap = true) {
 }
 
 async function pressBottomRightAction(driver, label) {
+  const bottomButton = await findFirst(
+    driver,
+    [
+      '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button"]',
+      '//android.widget.Button[@resource-id="com.google.android.youtube:id/upload_bottom_button"]',
+    ],
+    600
+  );
+
+  if (bottomButton) {
+    await tapElementCenterWithAdb(driver, bottomButton, label);
+    return true;
+  }
+
   const clicked = await clickIfPresent(
     driver,
     [
       'android=new UiSelector().textMatches("(?i)(next|continue|done)")',
       'android=new UiSelector().descriptionMatches("(?i)(next|continue|done)")',
-      '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_post_bottom_button"]',
-      '//android.widget.Button[@resource-id="com.google.android.youtube:id/upload_bottom_button"]',
     ],
     label,
     600
   );
 
-  if (clicked) {
-    return true;
-  }
-
   const { width, height } = await getScreenSize(driver);
-  await tapAt(driver, Math.round(width * 0.82), Math.round(height * 0.92), `${label} fast fallback`);
-  return false;
+  await tapAt(driver, Math.round(width * 0.74), Math.round(height * 0.883), `${label} fast fallback`);
+  await mobileShell(driver, "input", [
+    "tap",
+    String(Math.round(width * 0.74)),
+    String(Math.round(height * 0.883)),
+  ]);
+  return clicked;
 }
 
 async function pressUploadShort(driver) {
@@ -1008,9 +1092,254 @@ async function lowerSelectedSoundVolume(driver) {
   await pause(driver, 250);
   await tapAt(driver, targetX, musicSliderY, `selected sound volume ${volumePercent}%`);
   await pause(driver, 400);
-  await tapAt(driver, Math.round(width * 0.92), Math.round(height * 0.65), "Volume done");
-  await pause(driver, 600);
+  await closeVolumeSheet(driver);
+
   console.log(`Selected sound volume set near ${volumePercent}%`);
+  return true;
+}
+
+async function closeDiscardMenuIfPresent(driver) {
+  const saveWithoutSound = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i).*save without sound.*")',
+      'android=new UiSelector().descriptionMatches("(?i).*save without sound.*")',
+    ],
+    300
+  );
+
+  const cancel = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^cancel$")',
+      'android=new UiSelector().descriptionMatches("(?i)^cancel$")',
+      '//*[translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="cancel"]',
+    ],
+    500
+  );
+
+  if (!cancel) {
+    return false;
+  }
+
+  await tapElementCenterWithAdb(driver, cancel, saveWithoutSound ? "save without sound Cancel" : "discard menu Cancel");
+  await pause(driver, 700);
+  return true;
+}
+
+async function isVolumeSheetVisible(driver) {
+  return Boolean(
+    await findFirst(
+      driver,
+      [
+        'android=new UiSelector().textMatches("(?i)^volume$")',
+        'android=new UiSelector().descriptionMatches("(?i)^volume$")',
+      ],
+      300
+    )
+  );
+}
+
+async function closeVolumeSheet(driver) {
+  await closeDiscardMenuIfPresent(driver);
+
+  if (!(await isVolumeSheetVisible(driver))) {
+    return false;
+  }
+
+  const { width, height } = await getScreenSize(driver);
+  const points = [
+    [0.945, 0.665],
+    [0.945, 0.700],
+    [0.900, 0.665],
+  ];
+
+  for (const [px, py] of points) {
+    const x = Math.round(width * px);
+    const y = Math.round(height * py);
+    await tapAt(driver, x, y, `Volume done ${px},${py}`);
+    await pause(driver, 150);
+    await mobileShell(driver, "input", ["tap", String(x), String(y)]).catch(() => undefined);
+    await pause(driver, 450);
+    await closeDiscardMenuIfPresent(driver);
+
+    if (!(await isVolumeSheetVisible(driver))) {
+      return true;
+    }
+  }
+
+  console.warn("Volume sheet still visible after tapping done; continuing without BACK to avoid discard menu.");
+  return false;
+}
+
+async function openSelectedSoundTiming(driver) {
+  await closeDiscardMenuIfPresent(driver);
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await closeDiscardMenuIfPresent(driver);
+    const soundButton = await findFirst(
+      driver,
+      [
+        '//android.widget.Button[@resource-id="com.google.android.youtube:id/shorts_edit_sound_button"]',
+        'android=new UiSelector().resourceId("com.google.android.youtube:id/shorts_edit_sound_button")',
+        'android=new UiSelector().resourceId("com.google.android.youtube:id/sound_button_title")',
+        `android=new UiSelector().textContains("${escapeUiText(config.songTitle || config.soundName || "")}")`,
+        `android=new UiSelector().descriptionContains("${escapeUiText(config.songTitle || config.soundName || "")}")`,
+      ].filter((selector) => !selector.includes('textContains("")') && !selector.includes('descriptionContains("")')),
+      1200
+    );
+
+    if (soundButton) {
+      await tapElementCenterWithAdb(driver, soundButton, `selected sound chip ${attempt}`);
+    } else {
+      const { width, height } = await getScreenSize(driver);
+      const x = Math.round(width * 0.50);
+      const y = Math.round(height * 0.10);
+      await tapAt(driver, x, y, `selected sound chip fallback ${attempt}`);
+      await mobileShell(driver, "input", ["tap", String(x), String(y)]).catch(() => undefined);
+    }
+
+    await pause(driver, 900);
+    await closeDiscardMenuIfPresent(driver);
+    if (await soundTimingSeekInfo(driver)) {
+      return true;
+    }
+  }
+
+  throw new Error("Could not open selected sound timing screen");
+}
+
+async function closeSoundTimingIfOpen(driver) {
+  const closed = await clickIfPresent(
+    driver,
+    [
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/overlay_dialog_fragment_done")',
+      '//android.widget.Button[@resource-id="com.google.android.youtube:id/overlay_dialog_fragment_done"]',
+      'android=new UiSelector().textMatches("(?i)(done|save|apply|use)")',
+      'android=new UiSelector().descriptionMatches("(?i)(done|save|apply|use|close)")',
+      'android=new UiSelector().resourceIdMatches("(?i).*(done|save|apply|confirm|close).*")',
+    ],
+    "sound timing done",
+    900
+  );
+
+  if (closed) {
+    await pause(driver, 700);
+    return true;
+  }
+
+  const { width, height } = await getScreenSize(driver);
+  await tapAt(driver, Math.round(width * 0.90), Math.round(height * 0.90), "sound timing done fallback");
+  await pause(driver, 700);
+  return false;
+}
+
+async function soundTimingSeekInfo(driver) {
+  const seekBar = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/play_progress_bar")',
+      '//android.widget.SeekBar[@resource-id="com.google.android.youtube:id/play_progress_bar"]',
+      'android=new UiSelector().className("android.widget.SeekBar").instance(0)',
+    ],
+    1200
+  );
+
+  if (!seekBar) {
+    return null;
+  }
+
+  const bounds = parseBounds(await seekBar.getAttribute("bounds").catch(() => ""));
+  if (!bounds) {
+    return null;
+  }
+
+  const contentDesc = await seekBar.getAttribute("content-desc").catch(() => "");
+  const selectedMatch = String(contentDesc).match(/selected at (.*?) out of/i);
+  const totalMatch = String(contentDesc).match(/out of (.*)$/i);
+  const currentSeconds = selectedMatch ? parseVerboseDurationSeconds(selectedMatch[1]) : null;
+  const totalSeconds = totalMatch ? parseVerboseDurationSeconds(totalMatch[1]) : null;
+
+  return { bounds, currentSeconds, totalSeconds };
+}
+
+async function soundWaveformBounds(driver) {
+  const waveform = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/waveform_container")',
+      '//android.widget.RelativeLayout[@resource-id="com.google.android.youtube:id/waveform_container"]',
+      'android=new UiSelector().resourceId("com.google.android.youtube:id/waveform_view")',
+    ],
+    1000
+  );
+
+  if (!waveform) {
+    return null;
+  }
+
+  return parseBounds(await waveform.getAttribute("bounds").catch(() => ""));
+}
+
+async function adjustSelectedSoundStart(driver) {
+  if (!Number.isFinite(config.soundStartSeconds) || config.soundStartSeconds <= 0) {
+    if (!Number.isFinite(config.soundStartPercent) || config.soundStartPercent <= 0) {
+      return false;
+    }
+  }
+
+  await openSelectedSoundTiming(driver);
+
+  const { width, height } = await getScreenSize(driver);
+  let seekInfo = await soundTimingSeekInfo(driver);
+  const totalSeconds = seekInfo && seekInfo.totalSeconds ? seekInfo.totalSeconds : 223;
+  const desiredSeconds = Number.isFinite(config.soundStartSeconds) && config.soundStartSeconds > 0
+    ? Math.min(config.soundStartSeconds, totalSeconds)
+    : Math.round(totalSeconds * Math.max(0, Math.min(100, config.soundStartPercent)) / 100);
+
+  const waveformBounds = await soundWaveformBounds(driver);
+  if (seekInfo && waveformBounds && seekInfo.currentSeconds != null) {
+    const toleranceSeconds = Math.max(2, Math.round(totalSeconds * 0.015));
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const currentSeconds = seekInfo.currentSeconds == null ? desiredSeconds : seekInfo.currentSeconds;
+      const diffSeconds = desiredSeconds - currentSeconds;
+      if (Math.abs(diffSeconds) <= toleranceSeconds) {
+        break;
+      }
+
+      const waveformWidth = waveformBounds.right - waveformBounds.left;
+      const largeCorrection = Math.abs(diffSeconds) > 8;
+      const fromX = largeCorrection
+        ? (diffSeconds > 0 ? waveformBounds.right - 25 : waveformBounds.left + 25)
+        : Math.round((waveformBounds.left + waveformBounds.right) / 2);
+      const fineDragPixels = Math.round(-(diffSeconds / totalSeconds) * waveformWidth * 4);
+      const toX = largeCorrection
+        ? (diffSeconds > 0 ? waveformBounds.left + 25 : waveformBounds.right - 25)
+        : Math.max(waveformBounds.left + 25, Math.min(waveformBounds.right - 25, fromX + fineDragPixels));
+      const y = Math.round((waveformBounds.top + waveformBounds.bottom) / 2);
+
+      console.log(`Sound start correction attempt ${attempt}: current=${currentSeconds}s desired=${desiredSeconds}s from=${fromX} to=${toX}`);
+      await swipeAtWithAdb(driver, fromX, y, toX, y, largeCorrection ? 1500 : 900, `sound waveform start ${desiredSeconds}s attempt ${attempt}`);
+      await pause(driver, 700);
+      seekInfo = await soundTimingSeekInfo(driver);
+      if (!seekInfo || seekInfo.currentSeconds == null) {
+        break;
+      }
+    }
+  } else {
+    const waveformLeft = waveformBounds ? waveformBounds.left : Math.round(width * 0.04);
+    const waveformRight = waveformBounds ? waveformBounds.right : Math.round(width * 0.96);
+    const waveformY = waveformBounds ? Math.round((waveformBounds.top + waveformBounds.bottom) / 2) : Math.round(height * 0.81);
+    const ratio = Math.max(0, Math.min(0.98, desiredSeconds / totalSeconds));
+    const targetX = Math.round(waveformLeft + (waveformRight - waveformLeft) * ratio);
+
+    await swipeAtWithAdb(driver, Math.round((waveformLeft + waveformRight) / 2), waveformY, targetX, waveformY, 900, `sound waveform start ${desiredSeconds}s fallback`);
+    await pause(driver, 300);
+  }
+
+  const finalInfo = await soundTimingSeekInfo(driver);
+  console.log(`Selected sound start adjusted near ${desiredSeconds}s of ${totalSeconds}s${finalInfo && finalInfo.currentSeconds != null ? `; now ${finalInfo.currentSeconds}s` : ""}`);
+  await closeSoundTimingIfOpen(driver);
   return true;
 }
 
@@ -1029,6 +1358,7 @@ async function addSoundIfConfigured(driver) {
   await chooseSoundResult(driver);
   console.log("Sound selected");
   await lowerSelectedSoundVolume(driver);
+  await adjustSelectedSoundStart(driver);
   return true;
 }
 
@@ -1046,7 +1376,86 @@ async function continueAfterMediaSelected(driver) {
   await pause(driver, 900);
 }
 
+async function readTrimScreenDurationSeconds(driver, requestedSeconds = null) {
+  if (Number.isFinite(config.sourceDurationSeconds) && config.sourceDurationSeconds > 0) {
+    return config.sourceDurationSeconds;
+  }
+
+  const source = await driver.getPageSource().catch(() => "");
+  const candidates = [];
+  const durationPattern = /(?:text|content-desc)="([^"]*(?:\d+(?::\d+){1,2}|\d+(?:\.\d+)?\s*[hms])[^"]*)"/gi;
+  let match;
+
+  while ((match = durationPattern.exec(source))) {
+    const raw = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+    const tokenMatches = raw.match(/\d+(?::[0-5]?\d){1,2}(?:\.\d+)?|\d+(?:\.\d+)?\s*h\s*(?:\d+(?:\.\d+)?\s*m)?\s*(?:\d+(?:\.\d+)?\s*s)?|\d+(?:\.\d+)?\s*m\s*(?:\d+(?:\.\d+)?\s*s)?|\d+(?:\.\d+)?\s*s/gi) || [];
+
+    for (const token of tokenMatches) {
+      const seconds = parseDurationSeconds(token);
+      if (seconds && Number.isFinite(seconds)) {
+        candidates.push(seconds);
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const uniqueCandidates = [...new Set(candidates.map((value) => Number(value.toFixed(3))))].sort((a, b) => a - b);
+  if (Number.isFinite(requestedSeconds) && requestedSeconds > 0) {
+    const selectedDuration = uniqueCandidates.find((value) => value >= requestedSeconds * 1.05);
+    if (selectedDuration) {
+      console.log(`Trim duration candidates: ${uniqueCandidates.join(", ")}; using ${selectedDuration}s`);
+      return selectedDuration;
+    }
+  }
+
+  console.log(`Trim duration candidates: ${uniqueCandidates.join(", ")}; using ${uniqueCandidates[0]}s`);
+  return uniqueCandidates[0];
+}
+
+async function adjustTrimDurationIfConfigured(driver) {
+  const requestedSeconds = config.clipDurationSeconds;
+  if (!Number.isFinite(requestedSeconds) || requestedSeconds <= 0) {
+    return false;
+  }
+
+  const totalSeconds = await readTrimScreenDurationSeconds(driver, requestedSeconds);
+  if (!totalSeconds || requestedSeconds >= totalSeconds) {
+    console.log(`Skipping trim duration adjustment; requested=${requestedSeconds}s total=${totalSeconds || "unknown"}s`);
+    return false;
+  }
+
+  const { width, height } = await getScreenSize(driver);
+  const timelineLeft = Math.round(width * 0.05);
+  const timelineRight = Math.round(width * 0.94);
+  const baseTimelineYPercent = Number.isFinite(config.trimTimelineYPercent) && config.trimTimelineYPercent > 0
+    ? config.trimTimelineYPercent
+    : 0.815;
+  const timelineYPercents = [baseTimelineYPercent].filter((value) => value > 0.72 && value < 0.90);
+  const ratio = Math.max(0.05, Math.min(0.98, requestedSeconds / totalSeconds));
+  const minVisibleSelectionWidth = Math.round(width * 0.12);
+  const targetRight = Math.max(
+    Math.round(width * 0.16),
+    Math.round(timelineLeft + (timelineRight - timelineLeft) * ratio),
+    timelineLeft + minVisibleSelectionWidth
+  );
+
+  for (const yPercent of timelineYPercents) {
+    const timelineY = Math.round(height * yPercent);
+    await swipeAtWithAdb(driver, timelineRight, timelineY, targetRight, timelineY, 900, `trim right handle to ${requestedSeconds}s y=${yPercent.toFixed(3)}`);
+    await pause(driver, 350);
+  }
+
+  await pause(driver, 800);
+  console.log(`Trim duration requested: ${requestedSeconds}s of ${totalSeconds}s`);
+  return true;
+}
+
 async function continueAfterTrimScreen(driver) {
+  await adjustTrimDurationIfConfigured(driver);
+
   const clicked = await clickIfPresent(
     driver,
     [
@@ -1189,6 +1598,45 @@ async function fillDetailsRobust(driver) {
   await clickNext(driver, "details Next");
   await pause(driver, 800);
   return false;
+}
+
+async function chooseAudience(driver) {
+  const audiencePrompt = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i).*(audience|made for kids|kids).*")',
+      'android=new UiSelector().descriptionMatches("(?i).*(audience|made for kids|kids).*")',
+    ],
+    1500
+  );
+
+  if (!audiencePrompt) {
+    console.log("Audience screen not detected; continuing");
+    return false;
+  }
+
+  const selectors = config.madeForKids
+    ? [
+        'android=new UiSelector().textMatches("(?i).*(yes.*made for kids|made for kids).*")',
+        'android=new UiSelector().descriptionMatches("(?i).*(yes.*made for kids|made for kids).*")',
+      ]
+    : [
+        'android=new UiSelector().textMatches("(?i).*(no.*not made for kids|not made for kids|not for kids).*")',
+        'android=new UiSelector().descriptionMatches("(?i).*(no.*not made for kids|not made for kids|not for kids).*")',
+      ];
+
+  const selected = await clickIfPresent(driver, selectors, config.madeForKids ? "made for kids" : "not made for kids", 1200);
+  if (!selected) {
+    const { width, height } = await getScreenSize(driver);
+    const y = config.madeForKids ? Math.round(height * 0.42) : Math.round(height * 0.52);
+    await tapAt(driver, Math.round(width * 0.16), y, config.madeForKids ? "made for kids fallback" : "not made for kids fallback");
+  }
+
+  await pause(driver, 700);
+  await clickNext(driver, "audience Next");
+  await pause(driver, 1000);
+  console.log(`Audience selected: ${config.madeForKids ? "made for kids" : "not made for kids"}`);
+  return true;
 }
 
 async function finishUpload(driver) {

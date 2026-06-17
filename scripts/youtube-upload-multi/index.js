@@ -95,15 +95,22 @@ function waitForAppium(port, timeoutMs = 30000) {
 }
 
 async function startAppiumServer(port) {
-  const child = spawn(process.execPath, [appiumEntryPath(), "--port", String(port), "--allow-insecure=uiautomator2:adb_shell"], {
+  const child = spawn(process.execPath, [
+    appiumEntryPath(),
+    "--port",
+    String(port),
+    "--allow-insecure=uiautomator2:adb_shell",
+    "--log-level",
+    process.env.APPIUM_LOG_LEVEL || "warn",
+  ], {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
 
-  child.stdout.on("data", (chunk) => prefixLines(`appium:${port}`, chunk));
-  child.stderr.on("data", (chunk) => prefixLines(`appium:${port} ERR`, chunk));
+  child.stdout.on("data", (chunk) => prefixAppiumLines(`appium:${port}`, chunk));
+  child.stderr.on("data", (chunk) => prefixAppiumLines(`appium:${port} ERR`, chunk));
 
   await waitForAppium(port);
   return child;
@@ -142,7 +149,16 @@ function prefixLines(prefix, chunk) {
     .forEach((line) => console.log(`[${prefix}] ${line}`));
 }
 
-function runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSystemPort, appiumPort }) {
+function prefixAppiumLines(prefix, chunk) {
+  const verbose = boolArg(process.env.APPIUM_VERBOSE);
+  String(chunk)
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((line) => verbose || /\b(error|warn|failed|fatal|denied|unable|cannot)\b/i.test(line))
+    .forEach((line) => console.log(`[${prefix}] ${line}`));
+}
+
+function runDevice({ udid, index, videoPath, title, soundQuery, soundName, songTitle, soundStartSeconds, soundStartPercent, clipDurationSeconds, sourceDurationSeconds, baseSystemPort, appiumPort }) {
   return new Promise((resolve) => {
     const systemPort = baseSystemPort + index;
     const child = spawn(process.execPath, ["./scripts/youtube-upload-random"], {
@@ -154,8 +170,13 @@ function runDevice({ udid, index, videoPath, title, soundName, songTitle, baseSy
         APPIUM_SYSTEM_PORT: String(systemPort),
         YT_VIDEO_PATH: videoPath,
         YT_TITLE: title,
+        YT_SOUND_QUERY: soundQuery,
         YT_SOUND_NAME: soundName,
         YT_SONG_TITLE: songTitle,
+        YT_SOUND_START_SECONDS: soundStartSeconds,
+        YT_SOUND_START_PERCENT: soundStartPercent,
+        YT_CLIP_DURATION_SECONDS: clipDurationSeconds,
+        YT_SOURCE_DURATION_SECONDS: sourceDurationSeconds,
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -195,8 +216,13 @@ async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
   const videoPath = validateVideo(cliArgs.videoPath || process.env.YT_VIDEO_PATH || process.env.VIDEO_PATH || "");
   const title = cliArgs.title || process.env.YT_TITLE || process.env.TITLE || "";
+  const soundQuery = cliArgs.sound || cliArgs.soundQuery || process.env.YT_SOUND || process.env.YT_SOUND_QUERY || "";
   const soundName = cliArgs.soundName || process.env.YT_SOUND_NAME || process.env.SOUND_NAME || "";
   const songTitle = cliArgs.songTitle || process.env.YT_SONG_TITLE || process.env.YT_SOUND_TITLE || process.env.SONG_TITLE || "";
+  const soundStartSeconds = cliArgs.soundStartSeconds || process.env.YT_SOUND_START_SECONDS || "";
+  const soundStartPercent = cliArgs.soundStartPercent || process.env.YT_SOUND_START_PERCENT || "";
+  const clipDurationSeconds = cliArgs.clipDurationSeconds || process.env.YT_CLIP_DURATION_SECONDS || "";
+  const sourceDurationSeconds = cliArgs.sourceDurationSeconds || process.env.YT_SOURCE_DURATION_SECONDS || "";
   const udids =
     splitList(cliArgs.udids || process.env.ANDROID_DEVICE_UDIDS || process.env.UDIDS).length > 0
       ? splitList(cliArgs.udids || process.env.ANDROID_DEVICE_UDIDS || process.env.UDIDS)
@@ -204,6 +230,8 @@ async function main() {
   const baseSystemPort = Number(cliArgs.baseSystemPort || process.env.APPIUM_BASE_SYSTEM_PORT || 8200);
   const appiumPortBase = Number(cliArgs.appiumPortBase || process.env.APPIUM_PORT_BASE || process.env.APPIUM_PORT || 4723);
   const startAppium = boolArg(cliArgs.startAppium || process.env.APPIUM_START_SERVERS);
+  const appiumVerbose = boolArg(cliArgs.appiumVerbose || process.env.APPIUM_VERBOSE);
+  const appiumLogLevel = cliArgs.appiumLogLevel || process.env.APPIUM_LOG_LEVEL || "warn";
 
   if (!title) {
     throw new Error("Missing title. Use --title or set YT_TITLE.");
@@ -217,6 +245,8 @@ async function main() {
   try {
     if (startAppium) {
       console.log(`Starting ${udids.length} Appium server(s) from port ${appiumPortBase}`);
+      process.env.APPIUM_VERBOSE = appiumVerbose ? "true" : "";
+      process.env.APPIUM_LOG_LEVEL = appiumLogLevel;
       for (let index = 0; index < udids.length; index += 1) {
         appiumServers.push(await startAppiumServer(appiumPortBase + index));
       }
@@ -230,8 +260,13 @@ async function main() {
           index,
           videoPath,
           title,
+          soundQuery,
           soundName,
           songTitle,
+          soundStartSeconds,
+          soundStartPercent,
+          clipDurationSeconds,
+          sourceDurationSeconds,
           baseSystemPort,
           appiumPort: startAppium ? appiumPortBase + index : appiumPortBase,
         })
