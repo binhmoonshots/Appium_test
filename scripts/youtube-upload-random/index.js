@@ -66,12 +66,12 @@ const config = {
 };
 
 function validateInputs() {
-  if (!config.videoPath) {
-    throw new Error("Missing input videoPath. Use --videoPath \"C:\\path\\video.mp4\" or set YT_VIDEO_PATH.");
-  }
-
   if (!config.title) {
     throw new Error("Missing input title. Use --title \"Your title\" or set YT_TITLE.");
+  }
+
+  if (!config.videoPath) {
+    return;
   }
 
   const resolvedVideoPath = path.resolve(config.videoPath);
@@ -706,6 +706,11 @@ async function copyVideoToDevice(driver) {
 }
 
 async function prepareDeviceMedia(driver) {
+  if (!config.videoPath) {
+    console.log("No videoPath provided; using an existing visible video from the YouTube media picker.");
+    return null;
+  }
+
   await clearOldDeviceMedia(driver);
   return copyVideoToDevice(driver);
 }
@@ -1679,7 +1684,11 @@ async function main() {
   try {
     await tuneAppiumSettings(driver);
     console.log(`Connected to ${config.udid}`);
-    console.log(`Video: ${config.videoPath}`);
+    if (config.videoPath) {
+      console.log(`Video: ${config.videoPath}`);
+    } else {
+      console.log("Video: existing media picker item");
+    }
     console.log(`Title: ${config.title}`);
     if (hasSoundInput()) {
       console.log(`Sound: ${soundSearchQuery()}`);
