@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "google-play-login",
+  "name": "Google Play Login",
+  "description": "Automates Google account sign-in through the Google Play Store app on Android with Appium, and verifies that the active/signed-in account matches the requested email.",
+  "entrypoint": "index.js",
+  "npmScript": "google:play-login",
+  "runtime": "node",
+  "framework": "webdriverio-appium",
+  "platform": {
+    "name": "Android",
+    "automationName": "UiAutomator2",
+    "appPackage": "com.android.vending",
+    "appActivity": "com.google.android.finsky.activities.MainActivity"
+  },
+  "inputs": {
+    "cli": [
+      {
+        "name": "--email",
+        "required": true,
+        "mapsToEnv": "GOOGLE_EMAIL",
+        "description": "Google account email."
+      },
+      {
+        "name": "--password",
+        "required": true,
+        "mapsToEnv": "GOOGLE_PASSWORD",
+        "sensitive": true,
+        "description": "Google account password."
+      },
+      {
+        "name": "--manualWaitSeconds",
+        "required": false,
+        "default": 180,
+        "mapsToEnv": "GOOGLE_LOGIN_MANUAL_WAIT_SECONDS",
+        "description": "Seconds to wait while the user completes 2FA, CAPTCHA, or security prompts on the device."
+      },
+      {
+        "name": "--stepDelayMs",
+        "required": false,
+        "default": 0,
+        "mapsToEnv": "GOOGLE_LOGIN_STEP_DELAY_MS",
+        "description": "Extra milliseconds to wait after each scripted pause/click/type step."
+      },
+      {
+        "name": "--accountsFile",
+        "required": false,
+        "mapsToEnv": "GOOGLE_ACCOUNTS_FILE",
+        "description": "Path to a JSON array of accounts for multi-device login. Each item can include udid, email, and password."
+      },
+      {
+        "name": "--accounts",
+        "required": false,
+        "mapsToEnv": "GOOGLE_ACCOUNTS",
+        "sensitive": true,
+        "description": "Inline multi-device accounts separated by semicolon, using udid|email|password or email|password."
+      },
+      {
+        "name": "--dryRun",
+        "required": false,
+        "mapsToEnv": "MULTI_DRY_RUN",
+        "description": "Validate multi-device account mapping without starting login sessions."
+      }
+    ],
+    "environment": [
+      "ANDROID_DEVICE_UDID",
+      "ANDROID_DEVICE_UDIDS",
+      "UDID",
+      "UDIDS",
+      "APPIUM_HOST",
+      "APPIUM_PORT",
+      "APPIUM_SYSTEM_PORT",
+      "APPIUM_BASE_SYSTEM_PORT",
+      "APPIUM_PORT_BASE",
+      "APPIUM_START_SERVERS",
+      "GOOGLE_EMAIL",
+      "GOOGLE_PASSWORD",
+      "GOOGLE_EMAILS",
+      "GOOGLE_PASSWORDS",
+      "GOOGLE_ACCOUNTS",
+      "GOOGLE_ACCOUNTS_JSON",
+      "GOOGLE_ACCOUNTS_FILE",
+      "GOOGLE_LOGIN_CONTACTS_BACKUP",
+      "GOOGLE_LOGIN_ACCEPT_TERMS",
+      "GOOGLE_LOGIN_SKIP_PAYMENT",
+      "GOOGLE_LOGIN_MANUAL_WAIT_SECONDS",
+      "GOOGLE_LOGIN_STEP_DELAY_MS"
+    ]
+  },
+  "commands": {
+    "startAppium": "npm run appium",
+    "run": "npm run google:play-login",
+    "runWithCliArgs": "npm run google:play-login -- --email user@gmail.com --password password",
+    "runMulti": "npm run google:play-login:multi",
+    "runMultiWithCliArgs": "npm run google:play-login:multi -- --udids device1,device2 --accounts \"user1@gmail.com|password1;user2@gmail.com|password2\""
+  },
+  "outputs": {
+    "resultPrefix": "RESULT_JSON",
+    "fields": [
+      {
+        "name": "password",
+        "mapsFrom": "password",
+        "sensitive": true,
+        "description": "Google account password."
+      }
+    ],
+    "successStatuses": [
+      "already-signed-in",
+      "signed-in",
+      "submitted-login"
+    ]
+  },
+  "limitations": [
+    "If Play Store is already signed in with a different account, the script tries to open Add another account.",
+    "Google may require manual 2FA, CAPTCHA, passkey, or phone confirmation.",
+    "The script does not bypass Google security checks.",
+    "UI text and resource IDs may vary by Android, Play Store, Google Play services, and language version."
+  ]
+}

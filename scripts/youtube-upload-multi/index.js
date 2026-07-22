@@ -45,6 +45,15 @@ function boolArg(value) {
   return /^(1|true|yes|y)$/i.test(String(value || ""));
 }
 
+function intArg(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function validateVideo(videoPath) {
   if (!videoPath) {
     throw new Error("Missing videoPath. Use --videoPath or set YT_VIDEO_PATH.");
@@ -158,7 +167,7 @@ function prefixAppiumLines(prefix, chunk) {
     .forEach((line) => console.log(`[${prefix}] ${line}`));
 }
 
-function runDevice({ udid, index, videoPath, title, soundQuery, soundName, songTitle, soundStartSeconds, soundStartPercent, clipDurationSeconds, sourceDurationSeconds, baseSystemPort, appiumPort }) {
+function runDevice({ udid, index, videoPath, title, soundQuery, soundName, songTitle, soundVolumePercent, soundStartSeconds, soundStartPercent, clipDurationSeconds, sourceDurationSeconds, baseSystemPort, appiumPort }) {
   return new Promise((resolve) => {
     const systemPort = baseSystemPort + index;
     const child = spawn(process.execPath, ["./scripts/youtube-upload-random"], {
@@ -173,6 +182,7 @@ function runDevice({ udid, index, videoPath, title, soundQuery, soundName, songT
         YT_SOUND_QUERY: soundQuery,
         YT_SOUND_NAME: soundName,
         YT_SONG_TITLE: songTitle,
+        YT_SOUND_VOLUME_PERCENT: soundVolumePercent,
         YT_SOUND_START_SECONDS: soundStartSeconds,
         YT_SOUND_START_PERCENT: soundStartPercent,
         YT_CLIP_DURATION_SECONDS: clipDurationSeconds,
@@ -212,6 +222,38 @@ function runDevice({ udid, index, videoPath, title, soundQuery, soundName, songT
   });
 }
 
+async function runDeviceWithRetries(options, retries, retryDelayMs) {
+  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+    if (attempt > 1) {
+      console.log(`[${options.udid}] retry ${attempt - 1}/${retries} after ${retryDelayMs}ms`);
+      await sleep(retryDelayMs);
+    }
+
+    const result = await runDevice(options);
+    if (result.ok || attempt > retries) {
+      return { ...result, attempts: attempt };
+    }
+  }
+}
+
+async function runWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    })
+  );
+
+  return results;
+}
+
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
   const videoPath = validateVideo(cliArgs.videoPath || process.env.YT_VIDEO_PATH || process.env.VIDEO_PATH || "");
@@ -219,6 +261,7 @@ async function main() {
   const soundQuery = cliArgs.sound || cliArgs.soundQuery || process.env.YT_SOUND || process.env.YT_SOUND_QUERY || "";
   const soundName = cliArgs.soundName || process.env.YT_SOUND_NAME || process.env.SOUND_NAME || "";
   const songTitle = cliArgs.songTitle || process.env.YT_SONG_TITLE || process.env.YT_SOUND_TITLE || process.env.SONG_TITLE || "";
+  const soundVolumePercent = cliArgs.soundVolumePercent || process.env.YT_SOUND_VOLUME_PERCENT || "";
   const soundStartSeconds = cliArgs.soundStartSeconds || process.env.YT_SOUND_START_SECONDS || "";
   const soundStartPercent = cliArgs.soundStartPercent || process.env.YT_SOUND_START_PERCENT || "";
   const clipDurationSeconds = cliArgs.clipDurationSeconds || process.env.YT_CLIP_DURATION_SECONDS || "";
@@ -232,6 +275,12 @@ async function main() {
   const startAppium = boolArg(cliArgs.startAppium || process.env.APPIUM_START_SERVERS);
   const appiumVerbose = boolArg(cliArgs.appiumVerbose || process.env.APPIUM_VERBOSE);
   const appiumLogLevel = cliArgs.appiumLogLevel || process.env.APPIUM_LOG_LEVEL || "warn";
+  const defaultConcurrency = udids.length > 1 ? 2 : 1;
+  const defaultStaggerSeconds = udids.length > 1 ? 8 : 0;
+  const concurrency = Math.max(1, intArg(cliArgs.concurrency || process.env.MULTI_CONCURRENCY, defaultConcurrency));
+  const staggerMs = Math.max(0, intArg(cliArgs.staggerMs || process.env.MULTI_STAGGER_MS, intArg(cliArgs.staggerSeconds || process.env.MULTI_STAGGER_SECONDS, defaultStaggerSeconds) * 1000));
+  const retries = Math.max(0, intArg(cliArgs.retries || process.env.MULTI_RETRIES, 1));
+  const retryDelayMs = Math.max(0, intArg(cliArgs.retryDelayMs || process.env.MULTI_RETRY_DELAY_MS, 15000));
 
   if (!title) {
     throw new Error("Missing title. Use --title or set YT_TITLE.");
@@ -253,9 +302,16 @@ async function main() {
     }
 
     console.log(`Running ${udids.length} device(s): ${udids.join(", ")}`);
-    const results = await Promise.all(
-      udids.map((udid, index) =>
-        runDevice({
+    console.log(`Multi options: concurrency=${Math.min(concurrency, udids.length)}, staggerMs=${staggerMs}, retries=${retries}`);
+    const results = await runWithConcurrency(udids, concurrency, async (udid, index) => {
+      if (staggerMs > 0) {
+        const delay = staggerMs * index;
+        console.log(`[${udid}] waiting ${delay}ms before start`);
+        await sleep(delay);
+      }
+
+      return runDeviceWithRetries(
+        {
           udid,
           index,
           videoPath,
@@ -263,15 +319,18 @@ async function main() {
           soundQuery,
           soundName,
           songTitle,
+          soundVolumePercent,
           soundStartSeconds,
           soundStartPercent,
           clipDurationSeconds,
           sourceDurationSeconds,
           baseSystemPort,
           appiumPort: startAppium ? appiumPortBase + index : appiumPortBase,
-        })
-      )
-    );
+        },
+        retries,
+        retryDelayMs
+      );
+    });
 
     console.log("MULTI_RESULT_JSON", JSON.stringify({ ok: results.every((item) => item.ok), results }));
 

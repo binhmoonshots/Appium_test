@@ -60,7 +60,6 @@ const config = {
   sourceDurationSeconds: Number(cliArgs.sourceDurationSeconds || process.env.YT_SOURCE_DURATION_SECONDS || 0),
   trimTimelineYPercent: Number(cliArgs.trimTimelineYPercent || process.env.YT_TRIM_TIMELINE_Y_PERCENT || 0.815),
   madeForKids: /^true$/i.test(process.env.YT_MADE_FOR_KIDS || ""),
-  confirmPublish: !/^false$/i.test(process.env.YT_CONFIRM_PUBLISH || ""),
   verifyCleanup: /^true$/i.test(process.env.YT_VERIFY_CLEANUP || ""),
   mediaIndex: process.env.YT_VIDEO_INDEX || "0",
 };
@@ -101,6 +100,228 @@ function soundSearchQuery() {
   }
 
   return [config.songTitle, config.soundName].filter(Boolean).join(" ").trim();
+}
+
+function decodeXmlValue(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function soundQueryTokens() {
+  return normalizeSearchText(soundSearchQuery())
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+}
+
+function parseUiNodes(source) {
+  const nodes = [];
+  const nodePattern = /<node\b[^>]*>/g;
+  let nodeMatch;
+
+  while ((nodeMatch = nodePattern.exec(source || ""))) {
+    const tag = nodeMatch[0];
+    const attrs = {};
+    const attrPattern = /([\w:-]+)="([^"]*)"/g;
+    let attrMatch;
+
+    while ((attrMatch = attrPattern.exec(tag))) {
+      attrs[attrMatch[1]] = decodeXmlValue(attrMatch[2]);
+    }
+
+    const bounds = parseBounds(attrs.bounds || "");
+    const text = attrs.text || attrs["content-desc"] || "";
+    if (bounds && text) {
+      nodes.push({
+        text,
+        normalized: normalizeSearchText(text),
+        bounds,
+        centerY: Math.round((bounds.top + bounds.bottom) / 2),
+      });
+    }
+  }
+
+  return nodes;
+}
+
+function rowKeyForNode(node, rowHeight) {
+  return Math.round(node.centerY / rowHeight);
+}
+
+function soundResultRowsFromNodes(nodes, width, height) {
+  const ignored = new Set([
+    "sounds",
+    "create music",
+    "all",
+    "official music",
+    "original sounds",
+    "cancel",
+    "search",
+    "search music",
+    "search songs",
+    "search sounds",
+  ]);
+  const queryText = normalizeSearchText(soundSearchQuery());
+  const minY = Math.round(height * 0.16);
+  const maxY = Math.round(height * 0.94);
+  const rowHeight = Math.max(82, Math.round(height * 0.075));
+  const rows = new Map();
+
+  for (const node of nodes) {
+    if (node.centerY < minY || node.centerY > maxY) {
+      continue;
+    }
+    if (node.bounds.right < Math.round(width * 0.10)) {
+      continue;
+    }
+    if (!node.normalized || ignored.has(node.normalized) || node.normalized === queryText) {
+      continue;
+    }
+    if (node.normalized.includes("create music") || node.normalized.includes("search")) {
+      continue;
+    }
+
+    const key = rowKeyForNode(node, rowHeight);
+    const row = rows.get(key) || {
+      key,
+      nodes: [],
+      textParts: [],
+      top: node.bounds.top,
+      bottom: node.bounds.bottom,
+      left: node.bounds.left,
+      right: node.bounds.right,
+    };
+
+    row.nodes.push(node);
+    row.textParts.push(node.text);
+    row.top = Math.min(row.top, node.bounds.top);
+    row.bottom = Math.max(row.bottom, node.bounds.bottom);
+    row.left = Math.min(row.left, node.bounds.left);
+    row.right = Math.max(row.right, node.bounds.right);
+    rows.set(key, row);
+  }
+
+  return [...rows.values()]
+    .sort((a, b) => a.top - b.top)
+    .reduce((merged, row) => {
+      const previous = merged[merged.length - 1];
+      if (previous && row.top - previous.bottom < Math.round(rowHeight * 0.55)) {
+        previous.nodes.push(...row.nodes);
+        previous.textParts.push(...row.textParts);
+        previous.top = Math.min(previous.top, row.top);
+        previous.bottom = Math.max(previous.bottom, row.bottom);
+        previous.left = Math.min(previous.left, row.left);
+        previous.right = Math.max(previous.right, row.right);
+        return merged;
+      }
+
+      merged.push(row);
+      return merged;
+    }, [])
+    .map((row) => ({
+      ...row,
+      text: row.textParts.join(" "),
+      normalized: normalizeSearchText(row.textParts.join(" ")),
+      centerY: Math.round((row.top + row.bottom) / 2),
+    }))
+    .filter((row) => row.normalized && !row.normalized.includes("shorts camera"));
+}
+
+function soundResultRowsFromSource(source, width, height) {
+  return soundResultRowsFromNodes(parseUiNodes(source), width, height);
+}
+
+async function visibleUiTextNodes(driver) {
+  const selectors = [
+    'android=new UiSelector().className("android.widget.TextView")',
+    'android=new UiSelector().className("android.widget.Button")',
+    'android=new UiSelector().className("android.widget.ImageView")',
+  ];
+  const nodes = [];
+
+  for (const selector of selectors) {
+    const elements = await driver.$$(selector).catch(() => []);
+    for (const element of elements) {
+      const displayed = await element.isDisplayed().catch(() => true);
+      if (!displayed) {
+        continue;
+      }
+
+      const bounds = parseBounds(await element.getAttribute("bounds").catch(() => ""));
+      if (!bounds) {
+        continue;
+      }
+
+      const text = (
+        (await element.getText().catch(() => "")) ||
+        (await element.getAttribute("text").catch(() => "")) ||
+        (await element.getAttribute("content-desc").catch(() => ""))
+      );
+
+      if (!text) {
+        continue;
+      }
+
+      nodes.push({
+        text,
+        normalized: normalizeSearchText(text),
+        bounds,
+        centerY: Math.round((bounds.top + bounds.bottom) / 2),
+      });
+    }
+  }
+
+  return nodes;
+}
+
+async function soundResultRows(driver, width, height) {
+  const source = await driver.getPageSource().catch(() => "");
+  const sourceRows = soundResultRowsFromSource(source, width, height);
+  const soundRows = sourceRows.filter((row) => /\bplay a preview\b/i.test(row.text));
+  if (soundRows.length > 0) {
+    return soundRows;
+  }
+
+  const directRows = soundResultRowsFromNodes(await visibleUiTextNodes(driver), width, height);
+  if (directRows.length > 0) {
+    return directRows;
+  }
+
+  return sourceRows;
+}
+
+function scoreSoundResultRow(row, tokens, rowIndex) {
+  const text = row.normalized;
+  const compactText = text.replace(/\s+/g, "");
+  const phrase = normalizeSearchText(soundSearchQuery());
+  const compactPhrase = phrase.replace(/\s+/g, "");
+  const matchedTokens = tokens.filter((token) => text.includes(token) || compactText.includes(token));
+  let score = matchedTokens.length * 10;
+
+  if (phrase && (text.includes(phrase) || compactText.includes(compactPhrase))) {
+    score += 50;
+  }
+
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (text.includes(`${tokens[index]} ${tokens[index + 1]}`)) {
+      score += 6;
+    }
+  }
+
+  score -= rowIndex;
+  return { score, matchedTokens };
 }
 
 function randomInt(max) {
@@ -898,11 +1119,108 @@ function soundResultSelectors() {
 
 async function waitForSoundSearchResults(driver, timeout = 3000) {
   await pause(driver, timeout);
+  const { width, height } = await getScreenSize(driver);
+  const tokens = soundQueryTokens();
+  const rows = await soundResultRows(driver, width, height);
+  const best = rows
+    .map((row, index) => ({ row, index, ...scoreSoundResultRow(row, tokens, index) }))
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (best && best.matchedTokens.length >= Math.min(tokens.length, 2)) {
+    return true;
+  }
+
   const result = await findFirst(driver, soundResultSelectors(), 500);
   return Boolean(result);
 }
 
+async function tapBestSoundSearchResult(driver) {
+  const tokens = soundQueryTokens();
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  const { width, height } = await getScreenSize(driver);
+  const rows = await soundResultRows(driver, width, height);
+  const rankedRows = rows
+    .map((row, index) => ({ row, index, ...scoreSoundResultRow(row, tokens, index) }))
+    .sort((a, b) => b.score - a.score);
+  const best = rankedRows[0];
+  const requiredMatches = tokens.length >= 4 ? Math.max(3, tokens.length - 1) : tokens.length;
+
+  if (!best || best.matchedTokens.length < requiredMatches) {
+    if (await isSoundPickerVisible(driver)) {
+      const firstRow = rows[0];
+      const tapX = firstRow ? Math.max(48, Math.min(Math.round(width * 0.42), firstRow.left + 24)) : Math.round(width * 0.18);
+      const tapY = firstRow ? firstRow.centerY : Math.round(height * 0.275);
+      const visibleRows = rows.slice(0, 5).map((row) => `"${row.text}"`).join("; ");
+      console.warn(
+        `Could not read matching sound rows from accessibility tree; tapping first visible sound result. Rows seen: ${visibleRows || "none"}`
+      );
+      await tapAt(driver, tapX, tapY, "first visible sound result fallback");
+      await pause(driver, 1200);
+      return true;
+    }
+
+    const visibleRows = rows.slice(0, 5).map((row) => `"${row.text}"`).join("; ");
+    throw new Error(
+      `Could not find a close sound match for "${soundSearchQuery()}". Visible results: ${visibleRows || "none"}`
+    );
+  }
+
+  const tapX = Math.max(Math.round(width * 0.28), Math.min(Math.round(width * 0.62), Math.round((best.row.left + best.row.right) / 2)));
+  const tapY = best.row.centerY;
+  console.log(
+    `Selected sound result match ${best.matchedTokens.length}/${tokens.length}: ${best.row.text}`
+  );
+  await tapAt(driver, tapX, tapY, "best matching sound result");
+  await pause(driver, 1200);
+  return true;
+}
+
+async function tapSoundResultRetryPoints(driver) {
+  const { width, height } = await getScreenSize(driver);
+  const rows = await soundResultRows(driver, width, height);
+  const row = rows[0];
+  const y = row ? row.centerY : Math.round(height * 0.275);
+  const points = [
+    [Math.round(width * 0.16), y],
+    [Math.round(width * 0.30), y],
+    [Math.round(width * 0.50), y],
+  ];
+
+  for (const [x, pointY] of points) {
+    if (!(await isSoundPickerVisible(driver))) {
+      return true;
+    }
+
+    await tapAt(driver, x, pointY, "sound result retry");
+    await pause(driver, 1000);
+  }
+
+  return !(await isSoundPickerVisible(driver));
+}
+
+async function tapAddThisMusicButtonFromSource(driver) {
+  const source = await driver.getPageSource().catch(() => "");
+  const nodes = parseUiNodes(source);
+  const addButton = nodes.find((node) => /add this music to your video/i.test(node.text));
+  if (!addButton) {
+    return false;
+  }
+
+  const tapX = Math.round((addButton.bounds.left + addButton.bounds.right) / 2);
+  const tapY = Math.round((addButton.bounds.top + addButton.bounds.bottom) / 2);
+  await tapAt(driver, tapX, tapY, "Add this music button");
+  await pause(driver, 1200);
+  return true;
+}
+
 async function tapFirstSoundSuggestion(driver) {
+  if (await tapBestSoundSearchResult(driver)) {
+    return true;
+  }
+
   const result = await findFirst(driver, soundResultSelectors(), 1800);
   if (result) {
     await clickElement(driver, result, "sound result");
@@ -1003,8 +1321,7 @@ async function searchSound(driver) {
   await input.click();
   await input.clearValue().catch(() => undefined);
   await input.setValue(query).catch(() => undefined);
-  const { width, height } = await getScreenSize(driver);
-  await tapAt(driver, Math.round(width * 0.62), Math.round(height * 0.92), "IME Search");
+  await pause(driver, 500);
   await mobileShell(driver, "input", ["keyevent", "ENTER"]).catch(() => undefined);
   console.log(`Searched sound: ${query}`);
   if (!(await waitForSoundSearchResults(driver, 6000))) {
@@ -1013,9 +1330,13 @@ async function searchSound(driver) {
 }
 
 async function chooseSoundResult(driver) {
+  if (!(await isSoundPickerVisible(driver))) {
+    throw new Error("Sound picker closed after search; refusing to select from editor screen");
+  }
+
   await tapFirstSoundSuggestion(driver);
 
-  await clickIfPresent(
+  const clickedConfirm = await clickIfPresent(
     driver,
     [
       'android=new UiSelector().descriptionMatches("(?i)(add this music to your video|use this sound|add this sound)")',
@@ -1028,6 +1349,9 @@ async function chooseSoundResult(driver) {
     "confirm sound",
     1200
   );
+  if (!clickedConfirm) {
+    await tapAddThisMusicButtonFromSource(driver);
+  }
   await pause(driver, 1200);
 
   if (await isSoundPickerVisible(driver)) {
@@ -1040,7 +1364,7 @@ async function chooseSoundResult(driver) {
       "close sound picker",
       800
     );
-    if (!closed && (await isSoundPickerVisible(driver))) {
+    if (!closed && !(await tapSoundResultRetryPoints(driver)) && (await isSoundPickerVisible(driver))) {
       throw new Error("Sound picker is still open after selecting sound");
     }
   }
@@ -1477,7 +1801,8 @@ async function continueAfterTrimScreen(driver) {
     await tapAt(driver, Math.round(width * 0.86), Math.round(height * 0.90), "trim Done fallback");
   }
 
-  await pause(driver, 2500);
+  console.log("Waiting after trim for YouTube processing");
+  await pause(driver, 8000);
 }
 
 async function fillDetails(driver) {
@@ -1560,10 +1885,6 @@ async function fillDetailsRobust(driver) {
     const directUploadButton = await findFirst(driver, uploadButtonSelectors(), 1000);
     if (directUploadButton) {
       console.log("Add details screen has direct Upload button but no caption input");
-      if (!config.confirmPublish) {
-        console.log("Stopped before direct upload. Set YT_CONFIRM_PUBLISH=true to upload automatically.");
-        return false;
-      }
       await directUploadButton.click();
       console.log("Direct Upload button clicked");
       await pause(driver, 2500);
@@ -1645,11 +1966,6 @@ async function chooseAudience(driver) {
 }
 
 async function finishUpload(driver) {
-  if (!config.confirmPublish) {
-    console.log("Stopped before final publish. Set YT_CONFIRM_PUBLISH=true to publish automatically.");
-    return false;
-  }
-
   await pressUploadShort(driver);
   console.log("Final publish/upload button clicked");
   await pause(driver, 2500);
@@ -1669,11 +1985,8 @@ async function main() {
       "appium:automationName": "UiAutomator2",
       "appium:deviceName": "Android",
       "appium:udid": config.udid,
-      "appium:appPackage": YOUTUBE_PACKAGE,
-      "appium:appActivity": YOUTUBE_ACTIVITY,
-      "appium:appWaitPackage": YOUTUBE_PACKAGE,
-      "appium:appWaitActivity": "*",
       ...(config.systemPort ? { "appium:systemPort": config.systemPort } : {}),
+      "appium:autoLaunch": false,
       "appium:noReset": true,
       "appium:fullReset": false,
       "appium:autoGrantPermissions": true,
@@ -1733,7 +2046,9 @@ async function main() {
       songTitle: config.songTitle,
     };
   } finally {
-    await driver.deleteSession();
+    await driver.deleteSession().catch((error) => {
+      console.warn("Could not delete Appium session cleanly", error.message || error);
+    });
   }
 }
 
