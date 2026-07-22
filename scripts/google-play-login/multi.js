@@ -1,6 +1,7 @@
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const http = require("http");
+const net = require("net");
 const path = require("path");
 
 function parseCliArgs(argv) {
@@ -52,6 +53,33 @@ function adbPath() {
 
 function appiumEntryPath() {
   return path.join(process.cwd(), "node_modules", "appium", "index.js");
+}
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+async function findFreePorts(startPort, count, label) {
+  const ports = [];
+  let port = startPort;
+
+  while (ports.length < count) {
+    if (await isPortFree(port)) {
+      ports.push(port);
+    } else {
+      console.log(`${label} port ${port} is busy; trying ${port + 1}`);
+    }
+    port += 1;
+  }
+
+  return ports;
 }
 
 function detectConnectedDevices() {
@@ -298,9 +326,8 @@ function redactResult(result) {
   return clone;
 }
 
-function runDevice({ account, index, baseSystemPort, appiumPort, cliArgs }) {
+function runDevice({ account, systemPort, appiumPort, cliArgs }) {
   return new Promise((resolve) => {
-    const systemPort = baseSystemPort + index;
     const child = spawn(process.execPath, ["./scripts/google-play-login"], {
       cwd: process.cwd(),
       env: {
@@ -413,13 +440,16 @@ async function main() {
   }
 
   const appiumServers = [];
+  const appiumPorts = startAppium ? await findFreePorts(appiumPortBase, accounts.length, "Appium") : accounts.map(() => appiumPortBase);
+  const systemPorts = await findFreePorts(baseSystemPort, accounts.length, "UiAutomator2 system");
+
   try {
     if (startAppium) {
-      console.log(`Starting ${accounts.length} Appium server(s) from port ${appiumPortBase}`);
+      console.log(`Starting ${accounts.length} Appium server(s) on port(s): ${appiumPorts.join(", ")}`);
       process.env.APPIUM_VERBOSE = appiumVerbose ? "true" : "";
       process.env.APPIUM_LOG_LEVEL = appiumLogLevel;
       for (let index = 0; index < accounts.length; index += 1) {
-        appiumServers.push(await startAppiumServer(appiumPortBase + index));
+        appiumServers.push(await startAppiumServer(appiumPorts[index]));
       }
     }
 
@@ -436,9 +466,8 @@ async function main() {
       return runDeviceWithRetries(
         {
           account,
-          index,
-          baseSystemPort,
-          appiumPort: startAppium ? appiumPortBase + index : appiumPortBase,
+          systemPort: systemPorts[index],
+          appiumPort: appiumPorts[index],
           cliArgs,
         },
         retries,

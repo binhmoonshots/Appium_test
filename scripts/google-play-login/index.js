@@ -167,30 +167,114 @@ async function clickIfPresent(driver, selectors, label, timeout = 800) {
 }
 
 function inputFallbackPoint(label, width, height) {
-  const yPercent = label === "password" ? 0.49 : 0.51;
+  const yPercent = label === "password" ? 0.455 : 0.51;
   return {
     x: Math.round(width * 0.50),
     y: Math.round(height * yPercent),
   };
 }
 
+function inputFallbackPoints(label, width, height) {
+  if (label !== "password") {
+    return [inputFallbackPoint(label, width, height)];
+  }
+
+  return [0.455, 0.445, 0.465, 0.435].map((yPercent) => ({
+    x: Math.round(width * 0.50),
+    y: Math.round(height * yPercent),
+  }));
+}
+
 function adbInputText(value) {
-  return String(value)
-    .replace(/%/g, "\\%")
-    .replace(/\s/g, "%s")
-    .replace(/([\\;&|<>*$`"'(){}[\]])/g, "\\$1");
+  return String(value).replace(/\s/g, "%s");
+}
+
+function adbKeyEventForChar(char) {
+  const keyEvents = {
+    "@": "77",
+    ".": "56",
+    "-": "69",
+    "_": "69",
+  };
+  return keyEvents[char] || null;
+}
+
+async function adbTypeText(driver, value) {
+  let chunk = "";
+
+  async function flushChunk() {
+    if (!chunk) {
+      return;
+    }
+    await mobileShell(driver, "input", ["text", adbInputText(chunk)]);
+    chunk = "";
+    await pause(driver, 120);
+  }
+
+  for (const char of String(value)) {
+    const keyEvent = adbKeyEventForChar(char);
+    if (keyEvent) {
+      await flushChunk();
+      await mobileShell(driver, "input", ["keyevent", keyEvent]);
+      await pause(driver, 120);
+      continue;
+    }
+
+    chunk += char;
+  }
+
+  await flushChunk();
+}
+
+async function pasteText(driver, value) {
+  const content = Buffer.from(String(value), "utf8").toString("base64");
+  await driver.setClipboard(content, "plaintext", "google-login-input");
+  await pause(driver, 250);
+  await mobileShell(driver, "input", ["keyevent", "279"]);
+  await pause(driver, 900);
+}
+
+async function typeFocusedElement(driver, value, label) {
+  const focused = await findFirst(driver, ['android=new UiSelector().focused(true)'], 800);
+  if (!focused) {
+    return false;
+  }
+
+  await focused.setValue(value);
+  console.log(`Filled ${label} through focused element`);
+  return true;
 }
 
 async function typeWithKeyboardFallback(driver, value, label) {
   const { width, height } = await driver.getWindowSize();
-  const point = inputFallbackPoint(label, width, height);
-  await tapAt(driver, point.x, point.y, `${label} input fallback`);
-  await pause(driver, 500);
+  const points = inputFallbackPoints(label, width, height);
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    await tapAt(driver, point.x, point.y, `${label} input fallback ${index + 1}`);
+    await pause(driver, 700);
+
+    try {
+      if (await typeFocusedElement(driver, value, label)) {
+        return;
+      }
+    } catch (error) {
+      console.warn(`focused element typing failed for ${label}`, error.message || error);
+    }
+
+    try {
+      await pasteText(driver, value);
+      console.log(`Filled ${label} with clipboard fallback`);
+      return;
+    } catch (error) {
+      console.warn(`clipboard paste failed for ${label}; trying next fallback`, error.message || error);
+    }
+  }
 
   try {
-    await mobileShell(driver, "input", ["text", adbInputText(value)]);
-  } catch (error) {
-    console.warn(`adb input text failed for ${label}; trying driver.keys`, error.message || error);
+    await adbTypeText(driver, value);
+  } catch (adbError) {
+    console.warn(`adb input text failed for ${label}; trying driver.keys`, adbError.message || adbError);
     await driver.keys(value);
   }
 
