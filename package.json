@@ -7,9 +7,11 @@
     "test": "npm run wdio",
     "wdio": "wdio run ./wdio.conf.ts",
     "appium": "npx appium --allow-insecure=uiautomator2:adb_shell",
+    "appium:env": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-appium-env.ps1",
     "facebook:interact": "node ./scripts/facebook-interact",
     "facebook:interact:multi": "node ./scripts/facebook-interact/multi.js",
     "google:play-login": "node ./scripts/google-play-login",
+    "google:play-login:env": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/run-google-play-login-env.ps1",
     "google:play-login:multi": "node ./scripts/google-play-login/multi.js",
     "youtube:upload": "node ./scripts/youtube-upload-random",
     "youtube:upload:multi": "node ./scripts/youtube-upload-multi"
