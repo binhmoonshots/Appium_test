@@ -57,7 +57,8 @@ const config = {
   email: cliArgs.email || process.env.GOOGLE_EMAIL || process.env.GMAIL_EMAIL || "",
   password: cliArgs.password || process.env.GOOGLE_PASSWORD || process.env.GMAIL_PASSWORD || "",
   manualWaitSeconds: intArg(cliArgs.manualWaitSeconds || process.env.GOOGLE_LOGIN_MANUAL_WAIT_SECONDS, 180),
-  stepDelayMs: Math.max(0, intArg(cliArgs.stepDelayMs || process.env.GOOGLE_LOGIN_STEP_DELAY_MS, 0)),
+  stepDelayMs: Math.max(0, intArg(cliArgs.stepDelayMs || process.env.GOOGLE_LOGIN_STEP_DELAY_MS, 2000)),
+  typingDelayMs: Math.max(0, intArg(cliArgs.typingDelayMs || process.env.GOOGLE_LOGIN_TYPING_DELAY_MS, 150)),
   acceptTerms: boolArg(cliArgs.acceptTerms || process.env.GOOGLE_LOGIN_ACCEPT_TERMS, true),
   skipPayment: boolArg(cliArgs.skipPayment || process.env.GOOGLE_LOGIN_SKIP_PAYMENT, true),
   contactsBackup: boolArg(cliArgs.contactsBackup || process.env.GOOGLE_LOGIN_CONTACTS_BACKUP, false),
@@ -200,30 +201,15 @@ function adbKeyEventForChar(char) {
 }
 
 async function adbTypeText(driver, value) {
-  let chunk = "";
-
-  async function flushChunk() {
-    if (!chunk) {
-      return;
-    }
-    await mobileShell(driver, "input", ["text", adbInputText(chunk)]);
-    chunk = "";
-    await pause(driver, 120);
-  }
-
   for (const char of String(value)) {
     const keyEvent = adbKeyEventForChar(char);
     if (keyEvent) {
-      await flushChunk();
       await mobileShell(driver, "input", ["keyevent", keyEvent]);
-      await pause(driver, 120);
-      continue;
+    } else {
+      await mobileShell(driver, "input", ["text", adbInputText(char)]);
     }
-
-    chunk += char;
+    await pause(driver, config.typingDelayMs);
   }
-
-  await flushChunk();
 }
 
 async function pasteText(driver, value) {
@@ -240,8 +226,8 @@ async function typeFocusedElement(driver, value, label) {
     return false;
   }
 
-  await focused.setValue(value);
-  console.log(`Filled ${label} through focused element`);
+  await pasteText(driver, value);
+  console.log(`Pasted ${label} through focused element`);
   return true;
 }
 
@@ -255,20 +241,13 @@ async function typeWithKeyboardFallback(driver, value, label) {
     await pause(driver, 700);
 
     try {
-      if (await typeFocusedElement(driver, value, label)) {
-        return;
-      }
-    } catch (error) {
-      console.warn(`focused element typing failed for ${label}`, error.message || error);
-    }
-
-    try {
       await pasteText(driver, value);
-      console.log(`Filled ${label} with clipboard fallback`);
+      console.log(`Pasted ${label} with clipboard fallback`);
       return;
     } catch (error) {
       console.warn(`clipboard paste failed for ${label}; trying next fallback`, error.message || error);
     }
+
   }
 
   try {
@@ -278,7 +257,7 @@ async function typeWithKeyboardFallback(driver, value, label) {
     await driver.keys(value);
   }
 
-  console.log(`Filled ${label} with fallback typing`);
+  console.log(`Typed ${label} with fallback typing`);
 }
 
 async function typeIntoFirst(driver, selectors, value, label, timeout = 8000) {
@@ -292,39 +271,39 @@ async function typeIntoFirst(driver, selectors, value, label, timeout = 8000) {
   await pause(driver, 300);
   await element.clearValue().catch(() => undefined);
   try {
-    await element.setValue(value);
+    await pasteText(driver, value);
   } catch (error) {
-    console.warn(`setValue failed for ${label}; trying fallback typing`, error.message || error);
+    console.warn(`clipboard paste failed for ${label}; trying fallback typing`, error.message || error);
     await typeWithKeyboardFallback(driver, value, label);
     return;
   }
-  console.log(`Filled ${label}`);
+  console.log(`Pasted ${label}`);
 }
 
 function nextSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)^(next|tiếp theo)$")',
-    'android=new UiSelector().descriptionMatches("(?i)^(next|tiếp theo)$")',
+    'android=new UiSelector().textMatches("(?i)^next$")',
+    'android=new UiSelector().descriptionMatches("(?i)^next$")',
     'android=new UiSelector().resourceId("identifierNext")',
     'android=new UiSelector().resourceIdMatches("(?i).*identifierNext.*")',
-    '//*[@text="NEXT" or @text="Next" or @text="Tiếp theo"]',
+    '//*[@text="NEXT" or @text="Next"]',
   ];
 }
 
 function signInSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)(sign in|đăng nhập)")',
-    'android=new UiSelector().descriptionMatches("(?i)(sign in|đăng nhập)")',
+    'android=new UiSelector().textMatches("(?i)sign in")',
+    'android=new UiSelector().descriptionMatches("(?i)sign in")',
     'android=new UiSelector().resourceIdMatches("(?i).*(sign.?in|setup).*")',
   ];
 }
 
 function emailInputSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)^(email or phone|email|phone|email hoặc số điện thoại|số điện thoại)$")',
-    'android=new UiSelector().descriptionMatches("(?i)^(email or phone|email|phone|email hoặc số điện thoại|số điện thoại)$")',
+    'android=new UiSelector().textMatches("(?i)^(email or phone|email|phone)$")',
+    'android=new UiSelector().descriptionMatches("(?i)^(email or phone|email|phone)$")',
     'android=new UiSelector().className("android.widget.EditText").resourceIdMatches("(?i).*identifierId.*")',
-    'android=new UiSelector().className("android.widget.EditText").textMatches("(?i)(email|phone|email hoặc số điện thoại|số điện thoại)")',
+    'android=new UiSelector().className("android.widget.EditText").textMatches("(?i)(email|phone)")',
     '//*[@text="Email or phone" or @content-desc="Email or phone"]',
     '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"email or phone")]',
     'android=new UiSelector().className("android.widget.EditText").instance(0)',
@@ -334,15 +313,31 @@ function emailInputSelectors() {
 
 function passwordInputSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)^(enter your password|password|mật khẩu|nhập mật khẩu)$")',
-    'android=new UiSelector().descriptionMatches("(?i)^(enter your password|password|mật khẩu|nhập mật khẩu)$")',
-    'android=new UiSelector().className("android.widget.EditText").resourceIdMatches("(?i).*password.*")',
-    'android=new UiSelector().className("android.widget.EditText").textMatches("(?i)(password|enter your password|mật khẩu|nhập mật khẩu)")',
-    '//*[@text="Enter your password" or @text="Password" or @content-desc="Enter your password" or @content-desc="Password"]',
-    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"password")]',
     'android=new UiSelector().className("android.widget.EditText").instance(0)',
     '//android.widget.EditText',
+    'android=new UiSelector().textMatches("(?i)^(enter your password|password)$")',
+    'android=new UiSelector().descriptionMatches("(?i)^(enter your password|password)$")',
+    'android=new UiSelector().className("android.widget.EditText").resourceIdMatches("(?i).*password.*")',
+    'android=new UiSelector().className("android.widget.EditText").textMatches("(?i)(password|enter your password)")',
+    '//*[@text="Enter your password" or @text="Password" or @content-desc="Enter your password" or @content-desc="Password"]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"password")]',
   ];
+}
+
+async function revealPasswordIfAvailable(driver) {
+  const checkbox = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^show password$")',
+      'android=new UiSelector().descriptionMatches("(?i)^show password$")',
+    ],
+    1000
+  );
+
+  if (checkbox && (await checkbox.getAttribute("checked").catch(() => "false")) !== "true") {
+    await clickElement(driver, checkbox, "Show password");
+    await pause(driver, 300);
+  }
 }
 
 function successSelectors() {
@@ -380,8 +375,8 @@ function accountSwitcherSelectors() {
 
 function addAnotherAccountSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)(add another account|add account|thêm tài khoản)")',
-    'android=new UiSelector().descriptionMatches("(?i)(add another account|add account|thêm tài khoản)")',
+    'android=new UiSelector().textMatches("(?i)(add another account|add account)")',
+    'android=new UiSelector().descriptionMatches("(?i)(add another account|add account)")',
   ];
 }
 
@@ -460,15 +455,26 @@ async function chooseOrAddTargetAccount(driver) {
 
 function manualVerificationSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone|xác minh|mã xác minh|bảo mật)")',
-    'android=new UiSelector().descriptionMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone|xác minh|mã xác minh|bảo mật)")',
+    'android=new UiSelector().textMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone)")',
+    'android=new UiSelector().descriptionMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone)")',
   ];
 }
 
 async function openPlayStore(driver) {
-  await mobileShell(driver, "monkey", ["-p", PLAY_STORE_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"]);
-  await pause(driver, 4000);
-  console.log("Opened Play Store");
+  await mobileShell(driver, "am", ["start", "-n", `${PLAY_STORE_PACKAGE}/${PLAY_STORE_ACTIVITY}`]);
+  console.log("Opening Play Store and waiting for it to load");
+
+  const readyBy = Date.now() + 30000;
+  const readySelectors = [...successSelectors(), ...signInSelectors(), ...emailInputSelectors()];
+  do {
+    if (await findFirst(driver, readySelectors, 700)) {
+      console.log("Play Store is ready");
+      return;
+    }
+    await pause(driver, 500);
+  } while (Date.now() < readyBy);
+
+  console.warn("Play Store did not expose a ready element within 30 seconds; continuing with the login flow");
 }
 
 async function pressNext(driver, label = "Next") {
@@ -575,24 +581,24 @@ async function handleCommonButtons(driver) {
       label: "I agree",
       enabled: config.acceptTerms,
       selectors: [
-        'android=new UiSelector().textMatches("(?i)(i agree|agree|tôi đồng ý|đồng ý)")',
-        'android=new UiSelector().descriptionMatches("(?i)(i agree|agree|tôi đồng ý|đồng ý)")',
+        'android=new UiSelector().textMatches("(?i)(i agree|agree)")',
+        'android=new UiSelector().descriptionMatches("(?i)(i agree|agree)")',
       ],
     },
     {
       label: "Accept",
       enabled: config.acceptTerms,
       selectors: [
-        'android=new UiSelector().textMatches("(?i)(accept|more|chấp nhận|thêm)")',
-        'android=new UiSelector().descriptionMatches("(?i)(accept|more|chấp nhận|thêm)")',
+        'android=new UiSelector().textMatches("(?i)(accept|more)")',
+        'android=new UiSelector().descriptionMatches("(?i)(accept|more)")',
       ],
     },
     {
       label: "Skip payment",
       enabled: config.skipPayment,
       selectors: [
-        'android=new UiSelector().textMatches("(?i)(skip|not now|no thanks|bỏ qua|để sau|không, cảm ơn)")',
-        'android=new UiSelector().descriptionMatches("(?i)(skip|not now|no thanks|bỏ qua|để sau|không, cảm ơn)")',
+        'android=new UiSelector().textMatches("(?i)(skip|not now|no thanks)")',
+        'android=new UiSelector().descriptionMatches("(?i)(skip|not now|no thanks)")',
       ],
     },
   ];
@@ -648,6 +654,7 @@ async function runLoginFlow(driver) {
 
   await waitForManualVerification(driver);
   await typeIntoFirst(driver, passwordInputSelectors(), config.password, "password", 12000);
+  await revealPasswordIfAvailable(driver);
   await pressNext(driver, "password Next");
   await pause(driver, 5000);
 
@@ -701,7 +708,6 @@ async function main() {
       deviceUdid: config.udid || null,
       packageName: PLAY_STORE_PACKAGE,
       email: config.email,
-      password: config.password,
     };
   } finally {
     await driver.deleteSession().catch((error) => {
@@ -724,7 +730,6 @@ main()
         deviceUdid: config.udid || null,
         packageName: PLAY_STORE_PACKAGE,
         email: config.email,
-        password: config.password,
       })
     );
     process.exitCode = 1;

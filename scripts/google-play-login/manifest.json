@@ -38,7 +38,7 @@
       {
         "name": "--stepDelayMs",
         "required": false,
-        "default": 0,
+        "default": 2000,
         "mapsToEnv": "GOOGLE_LOGIN_STEP_DELAY_MS",
         "description": "Extra milliseconds to wait after each scripted pause/click/type step."
       },
