@@ -460,12 +460,34 @@ function manualVerificationSelectors() {
   ];
 }
 
+async function throwIfGooglePlayErrorScreen(driver) {
+  const errorScreen = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^something went wrong$")',
+      'android=new UiSelector().descriptionMatches("(?i)^something went wrong$")',
+    ],
+    700
+  );
+
+  if (!errorScreen) {
+    return;
+  }
+
+  throw new Error("Google Play error screen detected: Something went wrong. Please go back and try again.");
+}
+
 async function openPlayStore(driver) {
   await mobileShell(driver, "am", ["start", "-n", `${PLAY_STORE_PACKAGE}/${PLAY_STORE_ACTIVITY}`]);
   console.log("Opening Play Store and waiting for it to load");
 
   const readyBy = Date.now() + 30000;
-  const readySelectors = [...successSelectors(), ...signInSelectors(), ...emailInputSelectors()];
+  const readySelectors = [
+    ...successSelectors(),
+    ...signInSelectors(),
+    ...emailInputSelectors(),
+    'android=new UiSelector().textMatches("(?i)^welcome to google play$")',
+  ];
   do {
     if (await findFirst(driver, readySelectors, 700)) {
       console.log("Play Store is ready");
@@ -475,6 +497,38 @@ async function openPlayStore(driver) {
   } while (Date.now() < readyBy);
 
   console.warn("Play Store did not expose a ready element within 30 seconds; continuing with the login flow");
+}
+
+async function handlePlayWelcomeScreen(driver) {
+  const welcome = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^welcome to google play$")',
+      'android=new UiSelector().descriptionMatches("(?i)^welcome to google play$")',
+    ],
+    1500
+  );
+
+  if (!welcome) {
+    return false;
+  }
+
+  const clicked = await clickIfPresent(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^get started$")',
+      'android=new UiSelector().descriptionMatches("(?i)^get started$")',
+    ],
+    "Get started",
+    3000
+  );
+
+  if (!clicked) {
+    throw new Error("Google Play welcome screen was detected but the Get started button was not found.");
+  }
+
+  await pause(driver, 2000);
+  return true;
 }
 
 async function pressNext(driver, label = "Next") {
@@ -567,7 +621,43 @@ async function handleContactsSyncPrompt(driver) {
   return true;
 }
 
+async function handlePlayRestartPrompt(driver) {
+  const prompt = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^restart the app to complete the update$")',
+      'android=new UiSelector().descriptionMatches("(?i)^restart the app to complete the update$")',
+    ],
+    700
+  );
+
+  if (!prompt) {
+    return false;
+  }
+
+  const clicked = await clickIfPresent(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^restart$")',
+      'android=new UiSelector().descriptionMatches("(?i)^restart$")',
+    ],
+    "Restart Play Store",
+    2500
+  );
+
+  if (clicked) {
+    console.log("Waiting for Google Play to restart after its update");
+    await pause(driver, 5000);
+  }
+
+  return clicked;
+}
+
 async function handleCommonButtons(driver) {
+  if (await handlePlayRestartPrompt(driver)) {
+    return true;
+  }
+
   if (await handleContactsSyncPrompt(driver)) {
     return true;
   }
@@ -635,6 +725,7 @@ async function waitForManualVerification(driver) {
 
 async function runLoginFlow(driver) {
   await openPlayStore(driver);
+  await handlePlayWelcomeScreen(driver);
 
   if (await isSignedIn(driver, 2500)) {
     const accountStatus = await chooseOrAddTargetAccount(driver);
@@ -647,20 +738,25 @@ async function runLoginFlow(driver) {
 
   await clickIfPresent(driver, signInSelectors(), "Sign in", 8000);
   await pause(driver, 3000);
+  await throwIfGooglePlayErrorScreen(driver);
 
   await typeIntoFirst(driver, emailInputSelectors(), config.email, "email");
   await pressNext(driver, "email Next");
   await pause(driver, 4000);
 
+  await throwIfGooglePlayErrorScreen(driver);
   await waitForManualVerification(driver);
   await typeIntoFirst(driver, passwordInputSelectors(), config.password, "password", 12000);
   await revealPasswordIfAvailable(driver);
   await pressNext(driver, "password Next");
   await pause(driver, 5000);
 
+  await throwIfGooglePlayErrorScreen(driver);
   await waitForManualVerification(driver);
 
   for (let attempt = 1; attempt <= 16; attempt += 1) {
+    await throwIfGooglePlayErrorScreen(driver);
+
     if (await isSignedIn(driver, 1500)) {
       console.log("Play Store home detected");
       return "signed-in";
