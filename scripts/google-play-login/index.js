@@ -81,6 +81,10 @@ function escapeUiText(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function mobileShell(driver, command, args = []) {
   return driver.execute("mobile: shell", {
     command,
@@ -134,14 +138,24 @@ function parseBounds(bounds) {
 }
 
 async function tapAt(driver, x, y, label) {
-  await driver
-    .action("pointer", { parameters: { pointerType: "touch" } })
-    .move({ x, y })
-    .down()
-    .pause(80)
-    .up()
-    .perform();
+  try {
+    await driver
+      .action("pointer", { parameters: { pointerType: "touch" } })
+      .move({ x, y })
+      .down()
+      .pause(80)
+      .up()
+      .perform();
+  } catch (error) {
+    console.warn(`Pointer tap failed for ${label}; using adb input tap`, error.message || error);
+    await mobileShell(driver, "input", ["tap", x, y]);
+  }
   console.log(`Tapped ${label} at ${x},${y}`);
+}
+
+async function adbTapAt(driver, x, y, label) {
+  await mobileShell(driver, "input", ["tap", x, y]);
+  console.log(`ADB tapped ${label} at ${x},${y}`);
 }
 
 async function clickElement(driver, element, label) {
@@ -368,15 +382,36 @@ function accountMenuSelectors() {
 
 function accountSwitcherSelectors() {
   return [
+    'android=new UiSelector().textMatches("(?i)^switch account$")',
+    '//*[@text="Switch account"]',
     'android=new UiSelector().descriptionMatches("(?i)(switch account|show accounts|expand account|account options)")',
     'android=new UiSelector().resourceIdMatches("(?i).*(account_switcher|expand|dropdown).*")',
   ];
 }
 
+function accountMenuOpenedSelectors() {
+  return [
+    ...addAnotherAccountSelectors(),
+    'android=new UiSelector().textMatches("(?i)(manage your google account|google account|privacy policy)")',
+    'android=new UiSelector().descriptionMatches("(?i)(manage your google account|google account|privacy policy)")',
+  ];
+}
+
 function addAnotherAccountSelectors() {
   return [
+    'android=new UiSelector().text("Add another account")',
+    '//*[@text="Add another account"]',
     'android=new UiSelector().textMatches("(?i)(add another account|add account)")',
     'android=new UiSelector().descriptionMatches("(?i)(add another account|add account)")',
+  ];
+}
+
+function targetAccountSelectors() {
+  const emailPattern = escapeRegex(config.email);
+  return [
+    `android=new UiSelector().textMatches("(?i)^${emailPattern}$")`,
+    `android=new UiSelector().descriptionMatches("(?i)^${emailPattern}$")`,
+    `//*[@text="${escapeUiText(config.email)}" or @content-desc="${escapeUiText(config.email)}"]`,
   ];
 }
 
@@ -390,27 +425,103 @@ async function visibleEmails(driver) {
 }
 
 async function openAccountMenu(driver) {
-  if ((await visibleEmails(driver)).length > 0) {
+  if (await findFirst(driver, accountMenuOpenedSelectors(), 700)) {
     return true;
   }
 
   const opened = await clickIfPresent(driver, accountMenuSelectors(), "account menu", 2500);
   if (opened) {
     await pause(driver, 1200);
-    return true;
+    if ((await visibleEmails(driver)).length > 0 || (await findFirst(driver, accountMenuOpenedSelectors(), 1200))) {
+      return true;
+    }
   }
 
   const { width, height } = await driver.getWindowSize();
   const fallbacks = [
-    [0.90, 0.14],
-    [0.94, 0.14],
-    [0.88, 0.12],
+    [0.87, 0.075],
+    [0.90, 0.075],
+    [0.84, 0.075],
+    [0.87, 0.095],
+  ];
+
+  for (let index = 0; index < fallbacks.length; index += 1) {
+    const [px, py] = fallbacks[index];
+    const x = Math.round(width * px);
+    const y = Math.round(height * py);
+    if (index === 0) {
+      await adbTapAt(driver, x, y, "account avatar fallback");
+    } else {
+      await tapAt(driver, x, y, "account avatar fallback");
+    }
+    await pause(driver, 1000);
+    if ((await visibleEmails(driver)).length > 0 || (await findFirst(driver, accountMenuOpenedSelectors(), 1200))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function openAccountSwitcherFromMenu(driver) {
+  if (!(await findFirst(driver, accountMenuOpenedSelectors(), 1200))) {
+    console.warn("Account menu is not open; skipping account switcher taps");
+    return false;
+  }
+
+  if (await findFirst(driver, addAnotherAccountSelectors(), 700)) {
+    return true;
+  }
+
+  const clickedSwitcher = await clickIfPresent(driver, accountSwitcherSelectors(), "account switcher", 1800);
+  if (clickedSwitcher) {
+    await pause(driver, 1200);
+    if (await findFirst(driver, [...addAnotherAccountSelectors(), ...targetAccountSelectors()], 1200)) {
+      return true;
+    }
+  }
+
+  const { width, height } = await driver.getWindowSize();
+  const fallbacks = [
+    [0.82, 0.185],
+    [0.88, 0.185],
+    [0.76, 0.185],
+    [0.86, 0.245],
   ];
 
   for (const [px, py] of fallbacks) {
-    await tapAt(driver, Math.round(width * px), Math.round(height * py), "account menu fallback");
-    await pause(driver, 1000);
-    if ((await visibleEmails(driver)).length > 0) {
+    await adbTapAt(driver, Math.round(width * px), Math.round(height * py), "account switcher fallback");
+    await pause(driver, 1200);
+    if (await findFirst(driver, [...addAnotherAccountSelectors(), ...targetAccountSelectors()], 1200)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function clickAddAnotherAccount(driver, label = "Add another account") {
+  const clicked = await clickIfPresent(driver, addAnotherAccountSelectors(), label, 2500);
+  if (clicked) {
+    await pause(driver, 3000);
+    return true;
+  }
+
+  if (!(await findFirst(driver, accountMenuOpenedSelectors(), 700))) {
+    return false;
+  }
+
+  const { width, height } = await driver.getWindowSize();
+  const fallbacks = [
+    [0.48, 0.405],
+    [0.42, 0.405],
+    [0.58, 0.405],
+  ];
+
+  for (const [px, py] of fallbacks) {
+    await adbTapAt(driver, Math.round(width * px), Math.round(height * py), `${label} fallback`);
+    await pause(driver, 3000);
+    if (await findFirst(driver, [...emailInputSelectors(), ...signInSelectors()], 1500)) {
       return true;
     }
   }
@@ -420,7 +531,10 @@ async function openAccountMenu(driver) {
 
 async function chooseOrAddTargetAccount(driver) {
   const targetEmail = config.email.toLowerCase();
-  await openAccountMenu(driver);
+  const menuOpened = await openAccountMenu(driver);
+  if (!menuOpened) {
+    throw new Error("Could not open the Play Store account menu from the avatar.");
+  }
 
   let emails = await visibleEmails(driver);
   if (emails.includes(targetEmail)) {
@@ -433,24 +547,77 @@ async function chooseOrAddTargetAccount(driver) {
     console.log(`Current Google account(s): ${emails.join(", ")}; target is ${config.email}`);
   }
 
-  await clickIfPresent(driver, accountSwitcherSelectors(), "account switcher", 1200);
-  await pause(driver, 800);
+  const switcherOpened = await openAccountSwitcherFromMenu(driver);
+  if (!switcherOpened) {
+    throw new Error("Could not open the Play Store account switcher from the avatar menu.");
+  }
 
   emails = await visibleEmails(driver);
   if (emails.includes(targetEmail)) {
-    await clickIfPresent(driver, [`android=new UiSelector().text("${escapeUiText(config.email)}")`], "target account", 1200);
+    await clickIfPresent(driver, targetAccountSelectors(), "target account", 1200);
     return "already-signed-in";
   }
 
-  const clickedAdd = await clickIfPresent(driver, addAnotherAccountSelectors(), "Add another account", 2500);
-  if (clickedAdd) {
-    await pause(driver, 3000);
+  if (await clickAddAnotherAccount(driver)) {
+    return "add-account";
+  }
+
+  await mobileShell(driver, "input", ["keyevent", "4"]).catch(() => undefined);
+  await pause(driver, 800);
+  await openPlayStore(driver);
+  if (!(await openAccountMenu(driver))) {
+    throw new Error("Could not reopen the Play Store account menu from the avatar.");
+  }
+  if (!(await openAccountSwitcherFromMenu(driver))) {
+    throw new Error("Could not reopen the Play Store account switcher from the avatar menu.");
+  }
+
+  if (await clickAddAnotherAccount(driver, "Add another account retry")) {
     return "add-account";
   }
 
   throw new Error(
-    `Play Store is signed in with ${emails.join(", ") || "another account"}, but target ${config.email} is not available and Add another account was not found.`
+    `Play Store is signed in with ${emails.join(", ") || "another account"}, but target ${config.email} is not available and Add another account was not found from the Play Store account switcher.`
   );
+}
+
+async function ensureTargetAccountSelected(driver) {
+  const targetEmail = config.email.toLowerCase();
+  await openPlayStore(driver);
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await openAccountMenu(driver);
+    await pause(driver, 1200);
+
+    let emails = await visibleEmails(driver);
+    if (emails.includes(targetEmail)) {
+      const selected = await clickIfPresent(driver, targetAccountSelectors(), "target account", 2500);
+      if (selected) {
+        await pause(driver, 2500);
+        console.log(`Selected target Google account in Play Store: ${config.email}`);
+        return true;
+      }
+    }
+
+    await clickIfPresent(driver, accountSwitcherSelectors(), "account switcher", 1800);
+    await pause(driver, 1200);
+
+    emails = await visibleEmails(driver);
+    if (emails.includes(targetEmail)) {
+      const selected = await clickIfPresent(driver, targetAccountSelectors(), "target account", 2500);
+      if (selected) {
+        await pause(driver, 2500);
+        console.log(`Selected target Google account in Play Store: ${config.email}`);
+        return true;
+      }
+    }
+
+    await mobileShell(driver, "input", ["keyevent", "4"]).catch(() => undefined);
+    await pause(driver, 1000);
+  }
+
+  console.warn(`Could not confirm Play Store account switch to ${config.email}; account was added but Play Store may still show another active account.`);
+  return false;
 }
 
 function manualVerificationSelectors() {
@@ -528,6 +695,9 @@ async function handlePlayWelcomeScreen(driver) {
   }
 
   await pause(driver, 2000);
+  // The welcome flow commonly continues straight to the app-restore screen.
+  // Dismiss it here instead of letting a signed-in check race the transition.
+  await handleAppRestorePrompt(driver);
   return true;
 }
 
@@ -653,7 +823,43 @@ async function handlePlayRestartPrompt(driver) {
   return clicked;
 }
 
+async function handleAppRestorePrompt(driver) {
+  const restorePrompt = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^your apps,?\\s*ready to go$")',
+      'android=new UiSelector().descriptionMatches("(?i)^your apps,?\\s*ready to go$")',
+    ],
+    700
+  );
+
+  if (!restorePrompt) {
+    return false;
+  }
+
+  const clicked = await clickIfPresent(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^skip$")',
+      'android=new UiSelector().descriptionMatches("(?i)^skip$")',
+    ],
+    "Skip app restore",
+    2500
+  );
+
+  if (!clicked) {
+    throw new Error("Google Play app restore screen was detected but the Skip button was not found.");
+  }
+
+  console.log("Skipped Google Play app restore");
+  return true;
+}
+
 async function handleCommonButtons(driver) {
+  if (await handleAppRestorePrompt(driver)) {
+    return true;
+  }
+
   if (await handlePlayRestartPrompt(driver)) {
     return true;
   }
@@ -757,8 +963,16 @@ async function runLoginFlow(driver) {
   for (let attempt = 1; attempt <= 16; attempt += 1) {
     await throwIfGooglePlayErrorScreen(driver);
 
+    // This post-login screen can expose Play Store navigation elements, so
+    // dismiss it before treating the session as fully signed in.
+    if (await handleAppRestorePrompt(driver)) {
+      await pause(driver, 2000);
+      continue;
+    }
+
     if (await isSignedIn(driver, 1500)) {
       console.log("Play Store home detected");
+      await ensureTargetAccountSelected(driver);
       return "signed-in";
     }
 
