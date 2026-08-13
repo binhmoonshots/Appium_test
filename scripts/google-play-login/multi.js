@@ -51,7 +51,7 @@ function adbPath() {
   return process.env.ADB_PATH || "adb";
 }
 
-function appiumEntr yPath() {
+function appiumEntryPath() {
   return path.join(process.cwd(), "node_modules", "appium", "index.js");
 }
 
