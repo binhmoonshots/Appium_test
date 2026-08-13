@@ -574,8 +574,8 @@ function uploadButtonSelectors() {
 
 function createShortSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)(create a short|create short|short)")',
-    'android=new UiSelector().descriptionMatches("(?i)(create a short|create short|short)")',
+    'android=new UiSelector().textMatches("(?i)(create a short|create short|short|upload a video|upload video)")',
+    'android=new UiSelector().descriptionMatches("(?i)(create a short|create short|short|upload a video|upload video)")',
     'android=new UiSelector().resourceIdMatches("(?i).*short.*")',
   ];
 }
@@ -876,6 +876,34 @@ async function clearOldDeviceMedia(driver) {
   console.log("Device media cleanup finished");
 }
 
+async function clearOldUploadVideos(driver) {
+  console.log(`Clearing old upload videos from ${DEVICE_UPLOAD_DIR}`);
+  runAdb([...adbDeviceArgs(), "shell", "mkdir", "-p", DEVICE_UPLOAD_DIR], "adb mkdir upload dir");
+  runAdb([...adbDeviceArgs(), "shell", "sh", "-c", [
+    `find '${DEVICE_UPLOAD_DIR}' -maxdepth 1 -type f \\(`,
+    "-iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.3gp'",
+    "\\) -delete >/dev/null 2>&1 || true",
+  ].join(" ")], "adb delete old upload videos");
+  await refreshMediaStore(driver, DEVICE_UPLOAD_DIR);
+  console.log("Old upload videos cleared");
+}
+
+async function clearOldDeviceVideos(driver) {
+  console.log("Clearing old videos from device media folders");
+  runAdb([...adbDeviceArgs(), "shell", "am", "force-stop", YOUTUBE_PACKAGE], "adb force-stop YouTube");
+  runAdb([...adbDeviceArgs(), "shell", "content", "delete", "--uri", "content://media/external/video/media"], "adb clear video MediaStore");
+  runAdb([...adbDeviceArgs(), "shell", "sh", "-c", [
+    "find /sdcard -type f \\(",
+    "-iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.3gp'",
+    "\\) -delete >/dev/null 2>&1 || true",
+  ].join(" ")], "adb delete old device videos");
+
+  await refreshMediaStore(driver, "/sdcard/DCIM");
+  await refreshMediaStore(driver, "/sdcard/Movies");
+  await refreshMediaStore(driver, "/sdcard/Pictures");
+  console.log("Old device videos cleared");
+}
+
 function remoteUploadPath(videoPath) {
   const parsed = path.parse(videoPath);
   const safeBaseName = parsed.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "upload";
@@ -932,14 +960,31 @@ async function prepareDeviceMedia(driver) {
     return null;
   }
 
-  await clearOldDeviceMedia(driver);
+  await clearOldDeviceVideos(driver);
   return copyVideoToDevice(driver);
 }
 
 async function openYoutube(driver) {
-  await mobileShell(driver, "monkey", ["-p", YOUTUBE_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"]);
+  console.log("Opening YouTube");
+  const youtubeActivity = YOUTUBE_ACTIVITY.replace(/\$/g, "\\$");
+
+  await mobileShell(driver, "am", [
+    "start",
+    "-a",
+    "android.intent.action.MAIN",
+    "-c",
+    "android.intent.category.LAUNCHER",
+    "-n",
+    `${YOUTUBE_PACKAGE}/${youtubeActivity}`,
+  ]);
   await pause(driver, 2500);
-  
+
+  const currentPackage = await driver.getCurrentPackage().catch(() => "");
+  if (currentPackage !== YOUTUBE_PACKAGE) {
+    throw new Error(`YouTube did not open; current foreground package is ${currentPackage || "unknown"}`);
+  }
+
+  console.log("YouTube is foreground");
 }
 
 async function openVideoPickerFromCamera(driver) {
@@ -1006,15 +1051,25 @@ async function openShortsGallery(driver) {
 }
 
 async function openCreateShort(driver) {
-  await clickFirst(
+  const openedCreate = await clickIfPresent(
     driver,
     [
+      'android=new UiSelector().descriptionMatches("(?i)(create|add|plus)")',
       'android=new UiSelector().descriptionMatches("(?i)(create)")',
       'android=new UiSelector().textMatches("(?i)(create)")',
-      'android=new UiSelector().resourceIdMatches(".*create.*")',
+      'android=new UiSelector().resourceIdMatches("(?i).*(create|fab|plus|bottom_bar).*")',
+      '//android.widget.ImageButton[contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"create")]',
+      '//android.widget.Button[contains(translate(@content-desc,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"create")]',
     ],
-    "Create"
+    "Create",
+    1600
   );
+
+  if (!openedCreate) {
+    const { width, height } = await getScreenSize(driver);
+    await tapAt(driver, Math.round(width * 0.50), Math.round(height * 0.94), "Create bottom bar fallback");
+  }
+
   await pause(driver, 700);
   await handleCommonPopups(driver);
 
@@ -1032,6 +1087,33 @@ async function openCreateShort(driver) {
   await pause(driver, 900);
   await handleCommonPopups(driver);
   await openShortsGallery(driver);
+}
+
+async function isMediaPickerVisible(driver) {
+  const marker = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)(recents|create video|search youtube|videos|gallery)")',
+      'android=new UiSelector().descriptionMatches("(?i)(recents|create video|search youtube|videos|gallery)")',
+    ],
+    500
+  );
+
+  return Boolean(marker);
+}
+
+async function isVideoSelectedInPicker(driver) {
+  const marker = await findFirst(
+    driver,
+    [
+      'android=new UiSelector().textMatches("(?i)^(next|done|continue|add)$")',
+      'android=new UiSelector().descriptionMatches("(?i)^(next|done|continue|add)$")',
+      'android=new UiSelector().resourceIdMatches("(?i).*(next|done|continue).*")',
+    ],
+    500
+  );
+
+  return Boolean(marker);
 }
 
 async function chooseRandomVisibleVideo(driver) {
@@ -1059,11 +1141,34 @@ async function chooseRandomVisibleVideo(driver) {
     explicitIndex == null ? randomInt(totalCells) : Math.min(explicitIndex, totalCells - 1);
   const column = selectedIndex % columns;
   const row = Math.floor(selectedIndex / columns);
-  const x = Math.round(column * cellSize + cellSize / 2);
-  const y = Math.round(topInset + row * cellSize + cellSize / 2);
+  const x = selectedIndex === 0 ? Math.round(width * 0.17) : Math.round(column * cellSize + cellSize / 2);
+  const y = selectedIndex === 0 ? Math.round(height * 0.50) : Math.round(topInset + row * cellSize + cellSize / 2);
 
   await tapAt(driver, x, y, `random video ${selectedIndex + 1}/${totalCells}`);
   await pause(driver, 1200);
+
+  if (!(await isMediaPickerVisible(driver)) || (await isVideoSelectedInPicker(driver))) {
+    return;
+  }
+
+  const fallbackPoints = selectedIndex === 0
+    ? [
+        [0.17, 0.56],
+        [0.30, 0.50],
+        [0.17, 0.62],
+      ]
+    : [
+        [0.50, 0.42],
+        [0.83, 0.42],
+      ];
+
+  for (const [px, py] of fallbackPoints) {
+    await tapAt(driver, Math.round(width * px), Math.round(height * py), `video picker fallback ${px},${py}`);
+    await pause(driver, 1000);
+    if (!(await isMediaPickerVisible(driver)) || (await isVideoSelectedInPicker(driver))) {
+      return;
+    }
+  }
 }
 
 function addSoundSelectors() {
@@ -1134,6 +1239,23 @@ async function waitForSoundSearchResults(driver, timeout = 3000) {
   return Boolean(result);
 }
 
+function rowsLookLikeEditorTools(rows) {
+  const text = rows.map((row) => normalizeSearchText(row.text)).join(" ");
+  return /\b(text|effects|filters|stickers|more tools|browse saved)\b/.test(text);
+}
+
+async function tapFirstSoundResultByCoordinate(driver) {
+  const { width, height } = await getScreenSize(driver);
+  await tapAt(
+    driver,
+    Math.round(width * 0.42),
+    Math.round(height * 0.44),
+    "first sound result coordinate fallback"
+  );
+  await pause(driver, 1200);
+  return true;
+}
+
 async function tapBestSoundSearchResult(driver) {
   const tokens = soundQueryTokens();
   if (tokens.length === 0) {
@@ -1149,7 +1271,15 @@ async function tapBestSoundSearchResult(driver) {
   const requiredMatches = tokens.length >= 4 ? Math.max(3, tokens.length - 1) : tokens.length;
 
   if (!best || best.matchedTokens.length < requiredMatches) {
-    if (await isSoundPickerVisible(driver)) {
+    if ((await isSoundPickerVisible(driver)) && rowsLookLikeEditorTools(rows)) {
+      const visibleRows = rows.slice(0, 5).map((row) => `"${row.text}"`).join("; ");
+      console.warn(
+        `Sound picker results are visible but accessibility tree is stale; tapping first sound result by coordinate. Rows seen: ${visibleRows || "none"}`
+      );
+      return tapFirstSoundResultByCoordinate(driver);
+    }
+
+    if ((await isSoundPickerVisible(driver)) && rows.length > 0 && !rowsLookLikeEditorTools(rows)) {
       const firstRow = rows[0];
       const tapX = firstRow ? Math.max(48, Math.min(Math.round(width * 0.42), firstRow.left + 24)) : Math.round(width * 0.18);
       const tapY = firstRow ? firstRow.centerY : Math.round(height * 0.275);
@@ -1325,7 +1455,13 @@ async function searchSound(driver) {
   await mobileShell(driver, "input", ["keyevent", "ENTER"]).catch(() => undefined);
   console.log(`Searched sound: ${query}`);
   if (!(await waitForSoundSearchResults(driver, 6000))) {
-    console.warn(`Could not verify sound search results for: ${query}`);
+    const source = await driver.getPageSource().catch(() => "");
+    const { width, height } = await getScreenSize(driver);
+    const visibleRows = soundResultRowsFromSource(source, width, height)
+      .slice(0, 5)
+      .map((row) => `"${row.text}"`)
+      .join("; ");
+    throw new Error(`Could not verify sound search results for "${query}". Visible rows: ${visibleRows || "none"}`);
   }
 }
 
@@ -1703,6 +1839,25 @@ async function continueAfterMediaSelected(driver) {
     1500
   );
   await pause(driver, 900);
+
+  if (await isMediaPickerVisible(driver)) {
+    const { width, height } = await getScreenSize(driver);
+    const fallbackPoints = [
+      [0.86, 0.93],
+      [0.90, 0.90],
+      [0.50, 0.93],
+    ];
+
+    for (const [px, py] of fallbackPoints) {
+      await tapAt(driver, Math.round(width * px), Math.round(height * py), `media picker continue fallback ${px},${py}`);
+      await pause(driver, 900);
+      if (!(await isMediaPickerVisible(driver))) {
+        return;
+      }
+    }
+
+    throw new Error("Could not pick video from media picker");
+  }
 }
 
 async function readTrimScreenDurationSeconds(driver, requestedSeconds = null) {
