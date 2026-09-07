@@ -622,9 +622,31 @@ async function ensureTargetAccountSelected(driver) {
 
 function manualVerificationSelectors() {
   return [
-    'android=new UiSelector().textMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone)")',
-    'android=new UiSelector().descriptionMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone)")',
+    'android=new UiSelector().textMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone|get a code to sign in|g\\.co/sc|make sure it.s really you)")',
+    'android=new UiSelector().descriptionMatches("(?i)(verify|2-step|two-step|security code|captcha|not a robot|check your phone|get a code to sign in|g\\.co/sc|make sure it.s really you)")',
+    'android=new UiSelector().className("android.widget.EditText").textMatches("(?i)(enter security code|security code)")',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"get a code to sign in")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"enter security code")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"g.co/sc")]',
   ];
+}
+
+function wrongPasswordSelectors() {
+  return [
+    'android=new UiSelector().textMatches("(?i)(wrong password|incorrect password)")',
+    'android=new UiSelector().descriptionMatches("(?i)(wrong password|incorrect password)")',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"wrong password")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"incorrect password")]',
+  ];
+}
+
+async function throwIfWrongPassword(driver) {
+  const wrongPassword = await findFirst(driver, wrongPasswordSelectors(), 1200);
+  if (!wrongPassword) {
+    return;
+  }
+
+  throw new Error("Google login failed: wrong password.");
 }
 
 async function throwIfGooglePlayErrorScreen(driver) {
@@ -916,17 +938,7 @@ async function waitForManualVerification(driver) {
     return false;
   }
 
-  console.log(`Manual verification detected. Complete it on the device within ${config.manualWaitSeconds}s.`);
-  const endsAt = Date.now() + config.manualWaitSeconds * 1000;
-  while (Date.now() < endsAt) {
-    if (await isSignedIn(driver, 1000)) {
-      return true;
-    }
-    await handleCommonButtons(driver);
-    await pause(driver, 2000);
-  }
-
-  throw new Error("Timed out waiting for manual Google verification.");
+  throw new Error("Google login requires manual verification. Complete the security code or 2-step verification on the device, then run the script again.");
 }
 
 async function runLoginFlow(driver) {
@@ -958,10 +970,13 @@ async function runLoginFlow(driver) {
   await pause(driver, 5000);
 
   await throwIfGooglePlayErrorScreen(driver);
+  await throwIfWrongPassword(driver);
   await waitForManualVerification(driver);
 
   for (let attempt = 1; attempt <= 16; attempt += 1) {
     await throwIfGooglePlayErrorScreen(driver);
+    await throwIfWrongPassword(driver);
+    await waitForManualVerification(driver);
 
     // This post-login screen can expose Play Store navigation elements, so
     // dismiss it before treating the session as fully signed in.
