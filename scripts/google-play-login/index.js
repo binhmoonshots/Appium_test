@@ -631,6 +631,15 @@ function manualVerificationSelectors() {
   ];
 }
 
+function captchaSelectors() {
+  return [
+    'android=new UiSelector().textMatches("(?i)(confirm you.re not a robot|i.m not a robot|recaptcha|captcha)")',
+    'android=new UiSelector().descriptionMatches("(?i)(confirm you.re not a robot|i.m not a robot|recaptcha|captcha)")',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"not a robot")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"recaptcha")]',
+  ];
+}
+
 function wrongPasswordSelectors() {
   return [
     'android=new UiSelector().textMatches("(?i)(wrong password|incorrect password)")',
@@ -640,6 +649,46 @@ function wrongPasswordSelectors() {
   ];
 }
 
+function accountNotFoundSelectors() {
+  return [
+    'android=new UiSelector().textMatches("(?i)(couldn.t find this account|could not find this account|account not found)")',
+    'android=new UiSelector().descriptionMatches("(?i)(couldn.t find this account|could not find this account|account not found)")',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"couldn.t find this account")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"could not find this account")]',
+  ];
+}
+
+function accountDeletedSelectors() {
+  return [
+    'android=new UiSelector().textMatches("(?i)^account deleted$")',
+    'android=new UiSelector().descriptionMatches("(?i)^account deleted$")',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"account deleted")]',
+    '//*[contains(translate(@text,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"recently deleted")]',
+  ];
+}
+
+async function throwIfAccountNotFound(driver) {
+  const accountNotFound = await findFirst(driver, accountNotFoundSelectors(), 1200);
+  if (!accountNotFound) {
+    return;
+  }
+
+  throw new Error(
+    `GOOGLE_ACCOUNT_NOT_FOUND: Google could not find the account '${config.email}'. Verify the email/phone number and try again.`
+  );
+}
+
+async function throwIfAccountDeleted(driver) {
+  const accountDeleted = await findFirst(driver, accountDeletedSelectors(), 1200);
+  if (!accountDeleted) {
+    return;
+  }
+
+  throw new Error(
+    `GOOGLE_ACCOUNT_DELETED: The Google account '${config.email}' was recently deleted. Restore it manually using Google's account recovery flow, or use another account.`
+  );
+}
+
 async function throwIfWrongPassword(driver) {
   const wrongPassword = await findFirst(driver, wrongPasswordSelectors(), 1200);
   if (!wrongPassword) {
@@ -647,6 +696,20 @@ async function throwIfWrongPassword(driver) {
   }
 
   throw new Error("Google login failed: wrong password.");
+}
+
+async function throwIfCaptcha(driver) {
+  const captcha = await findFirst(driver, captchaSelectors(), 1200);
+  if (!captcha) {
+    return;
+  }
+
+  // CAPTCHA is intentionally not automated. Google requires the account owner
+  // to complete it interactively, and retrying automated input can increase
+  // the account's risk signals.
+  throw new Error(
+    "GOOGLE_CAPTCHA_REQUIRED: Google requested CAPTCHA verification (for example, ‘Confirm you’re not a robot’). Complete it manually on the device, then run the script again."
+  );
 }
 
 async function throwIfGooglePlayErrorScreen(driver) {
@@ -963,6 +1026,9 @@ async function runLoginFlow(driver) {
   await pause(driver, 4000);
 
   await throwIfGooglePlayErrorScreen(driver);
+  await throwIfAccountNotFound(driver);
+  await throwIfAccountDeleted(driver);
+  await throwIfCaptcha(driver);
   await waitForManualVerification(driver);
   await typeIntoFirst(driver, passwordInputSelectors(), config.password, "password", 12000);
   await revealPasswordIfAvailable(driver);
@@ -971,11 +1037,13 @@ async function runLoginFlow(driver) {
 
   await throwIfGooglePlayErrorScreen(driver);
   await throwIfWrongPassword(driver);
+  await throwIfCaptcha(driver);
   await waitForManualVerification(driver);
 
   for (let attempt = 1; attempt <= 16; attempt += 1) {
     await throwIfGooglePlayErrorScreen(driver);
     await throwIfWrongPassword(driver);
+    await throwIfCaptcha(driver);
     await waitForManualVerification(driver);
 
     // This post-login screen can expose Play Store navigation elements, so
